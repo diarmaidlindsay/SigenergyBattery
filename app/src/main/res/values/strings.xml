@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">Sigenergy Battery</string>
+    <string name="channel_monitoring">Battery monitoring</string>
+    <string name="channel_alerts">Battery alerts</string>
+    <string name="notification_alert">Battery threshold reached</string>
+</resources>
