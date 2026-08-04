@@ -26,7 +26,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 24-hour battery SOC line chart (0–100%, 5-minute samples).
+ * 24-hour battery SOC line chart (0-100%, 5-minute samples).
  *
  * [socs] are samples oldest → newest where each index is [intervalSeconds] apart,
  * starting at [startEpochSeconds]. Null samples are carried forward from the last

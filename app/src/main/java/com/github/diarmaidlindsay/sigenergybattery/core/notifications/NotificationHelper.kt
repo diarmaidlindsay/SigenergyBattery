@@ -54,7 +54,7 @@ object NotificationHelper {
         etaLabel: String?,
         transientError: String?,
     ): Notification {
-        val socText = lastSoc?.let { "%.1f%%".format(it) } ?: "—"
+        val socText = lastSoc?.let { "%.1f%%".format(it) } ?: "N/A"
         val body = buildString {
             append("Checking every ${config.intervalMinutes}m")
             append("\nLast SOC: $socText")
@@ -107,7 +107,7 @@ object NotificationHelper {
         }
         val title = "Battery SOC is %.1f%%".format(soc)
         val text = buildString {
-            append("Battery is $directionText ${config.thresholdSoc.toInt()}% — monitoring stopped.")
+            append("Battery is $directionText ${config.thresholdSoc.toInt()}%. Monitoring stopped.")
             extraLine?.let { append("\n$it") }
         }
         return NotificationCompat.Builder(context, CHANNEL_ALERTS)

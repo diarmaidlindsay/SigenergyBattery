@@ -71,7 +71,7 @@ class MonitorViewModelTest {
         advanceUntilIdle()
 
         assertFalse(vm.uiState.value.connected)
-        assertEquals("Unauthorized — check the API key", vm.uiState.value.connectionError)
+        assertEquals("Unauthorized. Check the API key", vm.uiState.value.connectionError)
     }
 
     @Test

@@ -191,7 +191,7 @@ class PollingService : Service() {
 
     private fun buildEtaLabel(monitorConfig: MonitorConfig, etaMinutes: Long?): String {
         val target = monitorConfig.thresholdSoc.toInt()
-        val eta = etaMinutes ?: return "$target% — not approaching at current rate"
+        val eta = etaMinutes ?: return "$target%: not approaching at current rate"
         return "$target% in ${SocEtaCalculator.formatMinutes(eta)}"
     }
 

@@ -234,7 +234,7 @@ open class MonitorViewModel(
                         isConnecting = false,
                         autoConnecting = false,
                         connectionError = when (e.code()) {
-                            401 -> "Unauthorized — check the API key"
+                            401 -> "Unauthorized. Check the API key"
                             404 -> "API not found on this host/port"
                             else -> "Bridge error (HTTP ${e.code()})"
                         },

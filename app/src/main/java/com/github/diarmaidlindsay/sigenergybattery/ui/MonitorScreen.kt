@@ -338,7 +338,7 @@ private fun MonitorPanel(
                         Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ChargeGreen)
                         Spacer(modifier = Modifier.size(8.dp))
                         Text(
-                            "Alert fired — monitoring stopped automatically.",
+                            "Alert fired. Monitoring stopped automatically.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = ChargeGreen,
                         )
@@ -395,12 +395,12 @@ private fun HistoryCard(state: MonitorUiState, onRefresh: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        "Battery SOC — last 24h",
+                        "Battery SOC · last 24h",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        "5-minute samples · 0–100%",
+                        "5-minute samples · 0-100%",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary,
                     )
@@ -449,7 +449,7 @@ private fun HistoryCard(state: MonitorUiState, onRefresh: () -> Unit) {
                             HistoryStat("Max", "%.0f%%".format(values.max()))
                             HistoryStat(
                                 "Now",
-                                state.currentSoc?.let { "%.1f%%".format(it) } ?: "—",
+                                state.currentSoc?.let { "%.1f%%".format(it) } ?: "N/A",
                             )
                         }
                     }
@@ -487,7 +487,7 @@ private fun SocCard(state: MonitorUiState) {
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                soc?.let { "%.1f%%".format(it) } ?: "—",
+                soc?.let { "%.1f%%".format(it) } ?: "N/A",
                 style = MaterialTheme.typography.displayMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
