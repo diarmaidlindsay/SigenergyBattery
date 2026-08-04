@@ -2,18 +2,18 @@
 <resources>
 
     <!-- Application theme (used after splash screen) -->
-    <style name="Theme.HermesBattery" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="Theme.SigenergyBattery" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@color/splash_background</item>
         <item name="android:navigationBarColor">@color/splash_background</item>
     </style>
 
     <!-- Splash screen theme (shown while app is launching) -->
-    <style name="Theme.HermesBattery.Starting" parent="Theme.SplashScreen">
+    <style name="Theme.SigenergyBattery.Starting" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/splash_background</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
         <item name="windowSplashScreenIconBackgroundColor">@color/splash_background</item>
         <item name="windowSplashScreenAnimationDuration">300</item>
-        <item name="postSplashScreenTheme">@style/Theme.HermesBattery</item>
+        <item name="postSplashScreenTheme">@style/Theme.SigenergyBattery</item>
     </style>
 
 </resources>

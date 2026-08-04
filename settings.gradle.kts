@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "HermesBattery"
+rootProject.name = "SigenergyBattery"
 include(":app")

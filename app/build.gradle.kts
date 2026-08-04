@@ -18,13 +18,13 @@ val hermesApiKey: String = localProperties.getProperty("HERMES_API_KEY")?.takeIf
     )
 
 android {
-    namespace = "com.github.diarmaidlindsay.hermesbattery"
+    namespace = "com.github.diarmaidlindsay.sigenergybattery"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.github.diarmaidlindsay.hermesbattery"
+        applicationId = "com.github.diarmaidlindsay.sigenergybattery"
         minSdk = 31
         targetSdk = 36
         versionCode = 1
