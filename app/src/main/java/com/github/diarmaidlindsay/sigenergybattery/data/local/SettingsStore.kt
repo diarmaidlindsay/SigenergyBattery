@@ -9,7 +9,9 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.BridgeConfig
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.Direction
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.MinerPreset
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.MonitorConfig
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.TriggerAction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -32,6 +34,8 @@ interface SettingsStore {
         const val DEFAULT_INTERVAL_MINUTES = 5
         const val DEFAULT_THRESHOLD_SOC = 20.0
         val DEFAULT_DIRECTION = Direction.AT_OR_BELOW
+        val DEFAULT_TRIGGER_ACTIONS = setOf(TriggerAction.NOTIFY)
+        val DEFAULT_MINER_PRESET = MinerPreset.EFFICIENT
     }
 }
 
@@ -48,6 +52,8 @@ class DataStoreSettingsStore(context: Context) : SettingsStore {
         val INTERVAL_MINUTES = intPreferencesKey("interval_minutes")
         val THRESHOLD_SOC = doublePreferencesKey("threshold_soc")
         val DIRECTION = stringPreferencesKey("direction")
+        val TRIGGER_ACTIONS = stringPreferencesKey("trigger_actions")
+        val MINER_PRESET = stringPreferencesKey("miner_preset")
         val HAS_CONNECTED_BEFORE = booleanPreferencesKey("has_connected_before")
     }
 
@@ -66,6 +72,14 @@ class DataStoreSettingsStore(context: Context) : SettingsStore {
             direction = prefs[Keys.DIRECTION]?.let { d ->
                 Direction.entries.firstOrNull { it.name == d }
             } ?: DEFAULT_DIRECTION,
+            triggerActions = prefs[Keys.TRIGGER_ACTIONS]
+                ?.split(",")
+                ?.mapNotNull { name -> TriggerAction.entries.firstOrNull { it.name == name } }
+                ?.toSet()
+                ?: DEFAULT_TRIGGER_ACTIONS,
+            minerPreset = prefs[Keys.MINER_PRESET]?.let { name ->
+                MinerPreset.entries.firstOrNull { it.name == name }
+            } ?: DEFAULT_MINER_PRESET,
         )
     }
 
@@ -86,6 +100,11 @@ class DataStoreSettingsStore(context: Context) : SettingsStore {
             it[Keys.INTERVAL_MINUTES] = config.intervalMinutes
             it[Keys.THRESHOLD_SOC] = config.thresholdSoc
             it[Keys.DIRECTION] = config.direction.name
+            it[Keys.TRIGGER_ACTIONS] = config.triggerActions
+                .ifEmpty { DEFAULT_TRIGGER_ACTIONS }
+                .joinToString(",") { action -> action.name }
+            config.minerPreset?.let { preset -> it[Keys.MINER_PRESET] = preset.name }
+                ?: it.remove(Keys.MINER_PRESET)
         }
     }
 
@@ -100,5 +119,7 @@ class DataStoreSettingsStore(context: Context) : SettingsStore {
         const val DEFAULT_INTERVAL_MINUTES = 5
         const val DEFAULT_THRESHOLD_SOC = 20.0
         val DEFAULT_DIRECTION = Direction.AT_OR_BELOW
+        val DEFAULT_TRIGGER_ACTIONS = setOf(TriggerAction.NOTIFY)
+        val DEFAULT_MINER_PRESET = MinerPreset.EFFICIENT
     }
 }

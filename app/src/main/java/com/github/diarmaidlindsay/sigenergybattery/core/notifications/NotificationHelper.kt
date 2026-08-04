@@ -84,6 +84,20 @@ object NotificationHelper {
         context: Context,
         soc: Double,
         config: MonitorConfig,
+    ): Notification = buildAlert(context, soc, config, extraLine = null)
+
+    fun alertWithError(
+        context: Context,
+        soc: Double,
+        config: MonitorConfig,
+        error: String,
+    ): Notification = buildAlert(context, soc, config, extraLine = "Action failed: $error")
+
+    private fun buildAlert(
+        context: Context,
+        soc: Double,
+        config: MonitorConfig,
+        extraLine: String?,
     ): Notification {
         val directionText = when (config.direction) {
             com.github.diarmaidlindsay.sigenergybattery.domain.model.Direction.AT_OR_ABOVE ->
@@ -92,7 +106,10 @@ object NotificationHelper {
                 "at or below"
         }
         val title = "Battery SOC is %.1f%%".format(soc)
-        val text = "Battery is $directionText ${config.thresholdSoc.toInt()}% — monitoring stopped."
+        val text = buildString {
+            append("Battery is $directionText ${config.thresholdSoc.toInt()}% — monitoring stopped.")
+            extraLine?.let { append("\n$it") }
+        }
         return NotificationCompat.Builder(context, CHANNEL_ALERTS)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)

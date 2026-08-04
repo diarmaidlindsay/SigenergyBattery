@@ -8,12 +8,16 @@ import androidx.core.content.ContextCompat
 import com.github.diarmaidlindsay.sigenergybattery.SigenergyBatteryApp
 import com.github.diarmaidlindsay.sigenergybattery.core.notifications.NotificationHelper
 import com.github.diarmaidlindsay.sigenergybattery.data.api.ApiClientFactory
+import com.github.diarmaidlindsay.sigenergybattery.data.api.HermesApi
 import com.github.diarmaidlindsay.sigenergybattery.data.api.toSnapshot
 import com.github.diarmaidlindsay.sigenergybattery.data.local.SettingsStore
 import com.github.diarmaidlindsay.sigenergybattery.domain.BatteryMonitor
 import com.github.diarmaidlindsay.sigenergybattery.domain.SocEtaCalculator
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.MinerPreset
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.MonitorConfig
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.TriggerAction
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -76,11 +80,7 @@ class PollingService : Service() {
                     PollingState.etaMinutes.value = computeEta(soc, snapshot, monitorConfig)
                     if (BatteryMonitor.shouldNotify(soc, monitorConfig.thresholdSoc, monitorConfig.direction)) {
                         if (soc != null) {
-                            NotificationHelper.notify(
-                                this,
-                                NotificationHelper.NOTIF_ID_ALERT,
-                                NotificationHelper.alert(this, soc, monitorConfig),
-                            )
+                            executeTriggerActions(soc, monitorConfig, api)
                         }
                         PollingState.alertFired.value = true
                         break
@@ -107,6 +107,69 @@ class PollingService : Service() {
             PollingState.active.value = false
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
+        }
+    }
+
+    /**
+     * Runs the selected trigger actions once the SOC threshold is reached.
+     * NOTIFY posts the alert immediately. MINER_ON/MINER_OFF first check the
+     * current HA switch states and only POST when the state actually differs.
+     * When SET_POWER_PRESET is selected, the preset is applied only if the
+     * miner's current power target differs; after actually turning the miner
+     * on it waits ~[PRESET_DELAY_MILLIS] for it to boot, otherwise applies
+     * immediately.
+     */
+    private suspend fun executeTriggerActions(
+        soc: Double,
+        config: MonitorConfig,
+        api: HermesApi,
+    ) {
+        val actions = BatteryMonitor.normalizeActions(config.triggerActions)
+        if (TriggerAction.NOTIFY in actions) {
+            NotificationHelper.notify(
+                this,
+                NotificationHelper.NOTIF_ID_ALERT,
+                NotificationHelper.alert(this, soc, config),
+            )
+        }
+        var actionError: String? = null
+        try {
+            var turnedOn = false
+            when {
+                TriggerAction.MINER_ON in actions -> {
+                    val states = runCatching { api.minerStatus().switchStates }.getOrNull()
+                    if (BatteryMonitor.shouldToggleMiner(states, "on")) {
+                        api.minerOn()
+                        turnedOn = true
+                    }
+                }
+
+                TriggerAction.MINER_OFF in actions -> {
+                    val states = runCatching { api.minerStatus().switchStates }.getOrNull()
+                    if (BatteryMonitor.shouldToggleMiner(states, "off")) {
+                        api.minerOff()
+                    }
+                }
+            }
+            if (TriggerAction.SET_POWER_PRESET in actions) {
+                if (turnedOn) delay(PRESET_DELAY_MILLIS)
+                val preset = config.minerPreset ?: MinerPreset.EFFICIENT
+                val current = runCatching { api.minerStatus().powerTargetW }.getOrNull()
+                if (BatteryMonitor.shouldSetPreset(current, preset.watts)) {
+                    api.setPowerPreset(preset.slug)
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            actionError = e.message?.take(120) ?: "miner action failed"
+        }
+        if (actionError != null) {
+            NotificationHelper.notify(
+                this,
+                NotificationHelper.NOTIF_ID_ALERT,
+                NotificationHelper.alertWithError(this, soc, config, actionError),
+            )
         }
     }
 
@@ -143,6 +206,9 @@ class PollingService : Service() {
     }
 
     companion object {
+        /** Wait after turning the miners on before applying a power preset. */
+        const val PRESET_DELAY_MILLIS = 2 * 60 * 1000L
+
         fun start(context: android.content.Context) {
             ContextCompat.startForegroundService(
                 context,

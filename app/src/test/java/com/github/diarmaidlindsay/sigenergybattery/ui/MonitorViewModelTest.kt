@@ -2,9 +2,12 @@ package com.github.diarmaidlindsay.sigenergybattery.ui
 
 import com.github.diarmaidlindsay.sigenergybattery.MainDispatcherRule
 import com.github.diarmaidlindsay.sigenergybattery.data.api.SolarNowDto
+import com.github.diarmaidlindsay.sigenergybattery.data.local.SettingsStore
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.BridgeConfig
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.Direction
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.MinerPreset
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.MonitorConfig
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.TriggerAction
 import com.github.diarmaidlindsay.sigenergybattery.fakes.FakeHermesApi
 import com.github.diarmaidlindsay.sigenergybattery.fakes.FakeSettingsStore
 import com.github.diarmaidlindsay.sigenergybattery.fakes.HangingHermesApi
@@ -333,5 +336,165 @@ class MonitorViewModelTest {
 
         assertTrue(api.calls > callsBefore)
         assertTrue(api.historyCalls >= 1)
+    }
+
+    // --- Trigger action selection ---
+
+    private fun viewModel(
+        startMonitoring: (MonitorConfig) -> Unit = {},
+    ): MonitorViewModel = MonitorViewModel(
+        store = store,
+        apiFactory = { FakeHermesApi() },
+        startMonitoring = startMonitoring,
+        stopMonitoring = {},
+    )
+
+    @Test
+    fun triggerActions_defaultToNotifyOnly() = runTest {
+        val vm = viewModel()
+        assertEquals(setOf(TriggerAction.NOTIFY), vm.uiState.value.triggerActions)
+    }
+
+    @Test
+    fun triggerAction_toggleOn_selectsIt() = runTest {
+        val vm = viewModel()
+        vm.onTriggerActionToggle(TriggerAction.MINER_ON, true)
+        assertTrue(TriggerAction.MINER_ON in vm.uiState.value.triggerActions)
+    }
+
+    @Test
+    fun triggerAction_toggleOff_deselectsIt() = runTest {
+        val vm = viewModel()
+        vm.onTriggerActionToggle(TriggerAction.MINER_ON, true)
+        vm.onTriggerActionToggle(TriggerAction.MINER_ON, false)
+        assertFalse(TriggerAction.MINER_ON in vm.uiState.value.triggerActions)
+    }
+
+    @Test
+    fun triggerAction_checkingOff_removesOnAndPreset() = runTest {
+        val vm = viewModel()
+        vm.onTriggerActionToggle(TriggerAction.MINER_ON, true)
+        vm.onTriggerActionToggle(TriggerAction.SET_POWER_PRESET, true)
+        vm.onTriggerActionToggle(TriggerAction.MINER_OFF, true)
+
+        val actions = vm.uiState.value.triggerActions
+        assertTrue(TriggerAction.MINER_OFF in actions)
+        assertFalse(TriggerAction.MINER_ON in actions)
+        assertFalse(TriggerAction.SET_POWER_PRESET in actions)
+        assertTrue(TriggerAction.NOTIFY in actions)
+    }
+
+    @Test
+    fun triggerAction_checkingPreset_alone_isAllowed() = runTest {
+        val vm = viewModel()
+        vm.onTriggerActionToggle(TriggerAction.SET_POWER_PRESET, true)
+
+        val actions = vm.uiState.value.triggerActions
+        assertTrue(TriggerAction.SET_POWER_PRESET in actions)
+        assertFalse(TriggerAction.MINER_ON in actions)
+        assertFalse(TriggerAction.MINER_OFF in actions)
+    }
+
+    @Test
+    fun beginMonitoring_presetOnly_savesPresetWithoutOn() = runTest {
+        var startedConfig: MonitorConfig? = null
+        val vm = viewModel(startMonitoring = { startedConfig = it })
+        vm.onTriggerActionToggle(TriggerAction.SET_POWER_PRESET, true)
+        vm.onMinerPresetChange(MinerPreset.LOW)
+        vm.beginMonitoring()
+        advanceUntilIdle()
+
+        assertEquals(
+            setOf(TriggerAction.NOTIFY, TriggerAction.SET_POWER_PRESET),
+            startedConfig!!.triggerActions,
+        )
+        assertEquals(MinerPreset.LOW, startedConfig!!.minerPreset)
+    }
+
+    @Test
+    fun triggerAction_checkingOn_whenOffSelected_switchesToOn() = runTest {
+        val vm = viewModel()
+        vm.onTriggerActionToggle(TriggerAction.MINER_OFF, true)
+        assertTrue(TriggerAction.MINER_OFF in vm.uiState.value.triggerActions)
+
+        vm.onTriggerActionToggle(TriggerAction.MINER_ON, true)
+
+        val actions = vm.uiState.value.triggerActions
+        assertTrue(TriggerAction.MINER_ON in actions)
+        assertFalse(TriggerAction.MINER_OFF in actions)
+    }
+
+    @Test
+    fun triggerAction_checkingOff_whenOnSelected_switchesToOff() = runTest {
+        val vm = viewModel()
+        vm.onTriggerActionToggle(TriggerAction.MINER_ON, true)
+        assertTrue(TriggerAction.MINER_ON in vm.uiState.value.triggerActions)
+
+        vm.onTriggerActionToggle(TriggerAction.MINER_OFF, true)
+
+        val actions = vm.uiState.value.triggerActions
+        assertTrue(TriggerAction.MINER_OFF in actions)
+        assertFalse(TriggerAction.MINER_ON in actions)
+    }
+
+    @Test
+    fun triggerAction_switchingOnThenOffThenOn_isAlwaysMutuallyExclusive() = runTest {
+        val vm = viewModel()
+        vm.onTriggerActionToggle(TriggerAction.MINER_OFF, true)
+        vm.onTriggerActionToggle(TriggerAction.MINER_ON, true)
+        vm.onTriggerActionToggle(TriggerAction.MINER_OFF, true)
+        vm.onTriggerActionToggle(TriggerAction.MINER_ON, true)
+
+        val actions = vm.uiState.value.triggerActions
+        assertEquals(setOf(TriggerAction.NOTIFY, TriggerAction.MINER_ON), actions)
+    }
+
+    @Test
+    fun beginMonitoring_savesActionsAndPreset() = runTest {
+        var startedConfig: MonitorConfig? = null
+        val vm = viewModel(startMonitoring = { startedConfig = it })
+        vm.onTriggerActionToggle(TriggerAction.MINER_ON, true)
+        vm.onTriggerActionToggle(TriggerAction.SET_POWER_PRESET, true)
+        vm.onMinerPresetChange(MinerPreset.MAX)
+        vm.beginMonitoring()
+        advanceUntilIdle()
+
+        val expected = MonitorConfig(
+            intervalMinutes = SettingsStore.DEFAULT_INTERVAL_MINUTES,
+            thresholdSoc = SettingsStore.DEFAULT_THRESHOLD_SOC,
+            direction = SettingsStore.DEFAULT_DIRECTION,
+            triggerActions = setOf(
+                TriggerAction.NOTIFY,
+                TriggerAction.MINER_ON,
+                TriggerAction.SET_POWER_PRESET,
+            ),
+            minerPreset = MinerPreset.MAX,
+        )
+        assertEquals(expected, startedConfig)
+        assertEquals(startedConfig, store.savedMonitor)
+    }
+
+    @Test
+    fun beginMonitoring_offOnly_storesNoPreset() = runTest {
+        var startedConfig: MonitorConfig? = null
+        val vm = viewModel(startMonitoring = { startedConfig = it })
+        vm.onTriggerActionToggle(TriggerAction.MINER_OFF, true)
+        vm.beginMonitoring()
+        advanceUntilIdle()
+
+        assertNotNull(startedConfig)
+        assertEquals(setOf(TriggerAction.NOTIFY, TriggerAction.MINER_OFF), startedConfig!!.triggerActions)
+        assertNull(startedConfig!!.minerPreset)
+    }
+
+    @Test
+    fun beginMonitoring_deselectAll_fallsBackToNotify() = runTest {
+        var startedConfig: MonitorConfig? = null
+        val vm = viewModel(startMonitoring = { startedConfig = it })
+        vm.onTriggerActionToggle(TriggerAction.NOTIFY, false)
+        vm.beginMonitoring()
+        advanceUntilIdle()
+
+        assertEquals(setOf(TriggerAction.NOTIFY), startedConfig!!.triggerActions)
     }
 }

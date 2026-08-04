@@ -1,6 +1,8 @@
 package com.github.diarmaidlindsay.sigenergybattery.fakes
 
 import com.github.diarmaidlindsay.sigenergybattery.data.api.HermesApi
+import com.github.diarmaidlindsay.sigenergybattery.data.api.MinerActionResponse
+import com.github.diarmaidlindsay.sigenergybattery.data.api.MinerStatusDto
 import com.github.diarmaidlindsay.sigenergybattery.data.api.SolarNowDto
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,15 +44,27 @@ class HangingHermesApi : HermesApi {
     override suspend fun solarNow(): SolarNowDto = kotlinx.coroutines.awaitCancellation()
     override suspend fun solarHistory(): com.github.diarmaidlindsay.sigenergybattery.data.api.SolarHistoryDto =
         kotlinx.coroutines.awaitCancellation()
+    override suspend fun minerOn(): MinerActionResponse = kotlinx.coroutines.awaitCancellation()
+    override suspend fun minerOff(): MinerActionResponse = kotlinx.coroutines.awaitCancellation()
+    override suspend fun setPowerPreset(preset: String): MinerActionResponse =
+        kotlinx.coroutines.awaitCancellation()
+    override suspend fun minerStatus(): MinerStatusDto = kotlinx.coroutines.awaitCancellation()
 }
 
 class FakeHermesApi(
     private val result: SolarNowDto? = null,
     private val error: Throwable? = null,
     private val history: com.github.diarmaidlindsay.sigenergybattery.data.api.SolarHistoryDto? = null,
+    private val minerStatus: MinerStatusDto? = null,
 ) : HermesApi {
     var calls = 0
     var historyCalls = 0
+    var minerOnCalls = 0
+    var minerOffCalls = 0
+    var powerPresetCalls = 0
+    var minerStatusCalls = 0
+    var lastPreset: String? = null
+
     override suspend fun solarNow(): SolarNowDto {
         calls++
         error?.let { throw it }
@@ -61,5 +75,30 @@ class FakeHermesApi(
         historyCalls++
         error?.let { throw it }
         return history ?: com.github.diarmaidlindsay.sigenergybattery.data.api.SolarHistoryDto()
+    }
+
+    override suspend fun minerOn(): MinerActionResponse {
+        minerOnCalls++
+        error?.let { throw it }
+        return MinerActionResponse("ok")
+    }
+
+    override suspend fun minerOff(): MinerActionResponse {
+        minerOffCalls++
+        error?.let { throw it }
+        return MinerActionResponse("ok")
+    }
+
+    override suspend fun setPowerPreset(preset: String): MinerActionResponse {
+        powerPresetCalls++
+        lastPreset = preset
+        error?.let { throw it }
+        return MinerActionResponse("ok")
+    }
+
+    override suspend fun minerStatus(): MinerStatusDto {
+        minerStatusCalls++
+        error?.let { throw it }
+        return minerStatus ?: MinerStatusDto()
     }
 }

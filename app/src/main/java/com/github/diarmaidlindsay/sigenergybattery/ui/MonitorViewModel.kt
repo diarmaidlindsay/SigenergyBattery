@@ -7,10 +7,13 @@ import com.github.diarmaidlindsay.sigenergybattery.core.di.AppContainer
 import com.github.diarmaidlindsay.sigenergybattery.data.api.HermesApi
 import com.github.diarmaidlindsay.sigenergybattery.data.api.toSnapshot
 import com.github.diarmaidlindsay.sigenergybattery.data.local.SettingsStore
+import com.github.diarmaidlindsay.sigenergybattery.domain.BatteryMonitor
 import com.github.diarmaidlindsay.sigenergybattery.domain.SocEtaCalculator
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.BridgeConfig
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.Direction
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.MinerPreset
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.MonitorConfig
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.TriggerAction
 import com.github.diarmaidlindsay.sigenergybattery.service.PollingState
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,6 +38,8 @@ data class MonitorUiState(
     val intervalMinutes: Int = SettingsStore.DEFAULT_INTERVAL_MINUTES,
     val thresholdSoc: Float = SettingsStore.DEFAULT_THRESHOLD_SOC.toFloat(),
     val direction: Direction = SettingsStore.DEFAULT_DIRECTION,
+    val triggerActions: Set<TriggerAction> = SettingsStore.DEFAULT_TRIGGER_ACTIONS,
+    val minerPreset: MinerPreset = SettingsStore.DEFAULT_MINER_PRESET,
     val monitoring: Boolean = false,
     val currentSoc: Double? = null,
     val checking: Boolean = false,
@@ -81,6 +86,8 @@ open class MonitorViewModel(
                         intervalMinutes = config.intervalMinutes,
                         thresholdSoc = config.thresholdSoc.toFloat(),
                         direction = config.direction,
+                        triggerActions = config.triggerActions,
+                        minerPreset = config.minerPreset ?: SettingsStore.DEFAULT_MINER_PRESET,
                     )
                 }
             }
@@ -140,6 +147,26 @@ open class MonitorViewModel(
     fun onThresholdChange(soc: Float) = _uiState.update { it.copy(thresholdSoc = soc) }
 
     fun onDirectionChange(direction: Direction) = _uiState.update { it.copy(direction = direction) }
+
+    /**
+     * Toggles a trigger action, normalizing the set so only valid combinations
+     * survive. The action being checked wins any conflict, so MINER_ON and
+     * MINER_OFF can be switched freely while staying mutually exclusive.
+     */
+    fun onTriggerActionToggle(action: TriggerAction, checked: Boolean) {
+        _uiState.update { state ->
+            val updated = if (checked) state.triggerActions + action else state.triggerActions - action
+            state.copy(
+                triggerActions = BatteryMonitor.normalizeActions(
+                    actions = updated,
+                    justSelected = if (checked) action else null,
+                ),
+            )
+        }
+    }
+
+    fun onMinerPresetChange(preset: MinerPreset) =
+        _uiState.update { it.copy(minerPreset = preset) }
 
     fun currentConfig(): BridgeConfig = with(_uiState.value) {
         BridgeConfig(host = host, port = port, apiKey = apiKey)
@@ -311,10 +338,15 @@ open class MonitorViewModel(
     }
 
     fun beginMonitoring() {
+        val state = _uiState.value
+        val actions = BatteryMonitor.normalizeActions(state.triggerActions)
+            .ifEmpty { setOf(TriggerAction.NOTIFY) }
         val config = MonitorConfig(
-            intervalMinutes = _uiState.value.intervalMinutes,
-            thresholdSoc = _uiState.value.thresholdSoc.toDouble(),
-            direction = _uiState.value.direction,
+            intervalMinutes = state.intervalMinutes,
+            thresholdSoc = state.thresholdSoc.toDouble(),
+            direction = state.direction,
+            triggerActions = actions,
+            minerPreset = if (TriggerAction.SET_POWER_PRESET in actions) state.minerPreset else null,
         )
         viewModelScope.launch {
             store.saveMonitorConfig(config)

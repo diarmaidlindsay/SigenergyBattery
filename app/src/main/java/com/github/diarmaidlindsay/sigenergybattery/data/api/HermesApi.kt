@@ -11,6 +11,8 @@ import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.http.GET
 import retrofit2.http.Headers
+import retrofit2.http.POST
+import retrofit2.http.Path
 import java.util.concurrent.TimeUnit
 
 @Serializable
@@ -40,6 +42,23 @@ data class HistoryPointDto(
     val soc: Double? = null,
 )
 
+/** Acknowledgment returned by the miner action endpoints. */
+@Serializable
+data class MinerActionResponse(
+    @SerialName("status") val status: String? = null,
+)
+
+/** Miner status for switch idempotency and the power-preset decision. */
+@Serializable
+data class MinerStatusDto(
+    @SerialName("power_target_w") val powerTargetW: Int? = null,
+    @SerialName("switches") val switches: Map<String, String> = emptyMap(),
+) {
+    /** HA switch state values ("on"/"off") for each miner smart plug. */
+    val switchStates: List<String>
+        get() = switches.values.toList()
+}
+
 fun SolarNowDto.toSnapshot(): SolarSnapshot = SolarSnapshot(
     socPct = batterySocPct ?: battery?.socPct,
     batteryKw = batteryKw,
@@ -55,6 +74,22 @@ interface HermesApi {
     @GET("api/solar/history")
     @Headers("Accept: application/json")
     suspend fun solarHistory(): SolarHistoryDto
+
+    @POST("api/miner/on")
+    @Headers("Accept: application/json")
+    suspend fun minerOn(): MinerActionResponse
+
+    @POST("api/miner/off")
+    @Headers("Accept: application/json")
+    suspend fun minerOff(): MinerActionResponse
+
+    @POST("api/miner/power-preset/{preset}")
+    @Headers("Accept: application/json")
+    suspend fun setPowerPreset(@Path("preset") preset: String): MinerActionResponse
+
+    @GET("api/miner/status")
+    @Headers("Accept: application/json")
+    suspend fun minerStatus(): MinerStatusDto
 }
 
 object ApiClientFactory {

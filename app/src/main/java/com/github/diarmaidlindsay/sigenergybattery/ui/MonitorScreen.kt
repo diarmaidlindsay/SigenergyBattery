@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -55,6 +56,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.Direction
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.MinerPreset
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.TriggerAction
 import com.github.diarmaidlindsay.sigenergybattery.domain.SocEtaCalculator
 import com.github.diarmaidlindsay.sigenergybattery.ui.components.SocHistoryChart
 import com.github.diarmaidlindsay.sigenergybattery.ui.theme.ChargeGreen
@@ -101,6 +104,8 @@ fun MonitorScreen(
                 onIntervalChange = viewModel::onIntervalChange,
                 onThresholdChange = viewModel::onThresholdChange,
                 onDirectionChange = viewModel::onDirectionChange,
+                onTriggerActionToggle = viewModel::onTriggerActionToggle,
+                onMinerPresetChange = viewModel::onMinerPresetChange,
                 onCheckNow = viewModel::checkNow,
                 onLoadHistory = viewModel::loadHistory,
                 onStart = viewModel::beginMonitoring,
@@ -227,6 +232,8 @@ private fun MonitorPanel(
     onIntervalChange: (Int) -> Unit,
     onThresholdChange: (Float) -> Unit,
     onDirectionChange: (Direction) -> Unit,
+    onTriggerActionToggle: (TriggerAction, Boolean) -> Unit,
+    onMinerPresetChange: (MinerPreset) -> Unit,
     onCheckNow: () -> Unit,
     onLoadHistory: () -> Unit,
     onStart: () -> Unit,
@@ -310,6 +317,13 @@ private fun MonitorPanel(
                     Text("100%", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                 }
             }
+
+            TriggerActionsSection(
+                triggerActions = state.triggerActions,
+                minerPreset = state.minerPreset,
+                onTriggerActionToggle = onTriggerActionToggle,
+                onMinerPresetChange = onMinerPresetChange,
+            )
 
             when {
                 state.monitoring -> {
@@ -480,6 +494,81 @@ private fun SocCard(state: MonitorUiState) {
             )
         }
     }
+}
+
+@Composable
+private fun TriggerActionsSection(
+    triggerActions: Set<TriggerAction>,
+    minerPreset: MinerPreset,
+    onTriggerActionToggle: (TriggerAction, Boolean) -> Unit,
+    onMinerPresetChange: (MinerPreset) -> Unit,
+) {
+    Column {
+        Text(
+            "When triggered, also run:",
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextSecondary,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        ActionCheckbox(
+            label = "Send notification",
+            checked = TriggerAction.NOTIFY in triggerActions,
+            onCheckedChange = { onTriggerActionToggle(TriggerAction.NOTIFY, it) },
+        )
+        ActionCheckbox(
+            label = "Turn miners on",
+            checked = TriggerAction.MINER_ON in triggerActions,
+            onCheckedChange = { onTriggerActionToggle(TriggerAction.MINER_ON, it) },
+        )
+        ActionCheckbox(
+            label = "Turn miners off",
+            checked = TriggerAction.MINER_OFF in triggerActions,
+            onCheckedChange = { onTriggerActionToggle(TriggerAction.MINER_OFF, it) },
+        )
+        ActionCheckbox(
+            label = "Set power preset",
+            checked = TriggerAction.SET_POWER_PRESET in triggerActions,
+            onCheckedChange = { onTriggerActionToggle(TriggerAction.SET_POWER_PRESET, it) },
+        )
+        if (TriggerAction.SET_POWER_PRESET in triggerActions) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MinerPreset.entries.forEach { preset ->
+                    FilterChip(
+                        selected = minerPreset == preset,
+                        onClick = { onMinerPresetChange(preset) },
+                        label = { Text(presetLabel(preset)) },
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            "When \"Turn miners on\" is combined with a power preset, the preset is applied " +
+                "~2 minutes later (after the miner boots) and only if the current power target " +
+                "differs. The preset alone is applied immediately.",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary,
+        )
+    }
+}
+
+@Composable
+private fun ActionCheckbox(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = checked, onCheckedChange = onCheckedChange)
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+private fun presetLabel(preset: MinerPreset): String = when (preset) {
+    MinerPreset.LOW -> "Low · 1 kW"
+    MinerPreset.EFFICIENT -> "Efficient · 2 kW"
+    MinerPreset.MAX -> "Max · 2.76 kW"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
