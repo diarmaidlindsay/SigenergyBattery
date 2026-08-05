@@ -4,7 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.github.diarmaidlindsay.sigenergybattery.core.di.AppContainer
+import com.github.diarmaidlindsay.sigenergybattery.data.api.DeviceRegisterDto
 import com.github.diarmaidlindsay.sigenergybattery.data.api.HermesApi
+import com.github.diarmaidlindsay.sigenergybattery.data.api.TriggerConfigDto
 import com.github.diarmaidlindsay.sigenergybattery.data.api.toSnapshot
 import com.github.diarmaidlindsay.sigenergybattery.data.local.SettingsStore
 import com.github.diarmaidlindsay.sigenergybattery.domain.BatteryMonitor
@@ -15,6 +17,7 @@ import com.github.diarmaidlindsay.sigenergybattery.domain.model.MinerPreset
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.MonitorConfig
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.TriggerAction
 import com.github.diarmaidlindsay.sigenergybattery.service.PollingState
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +25,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
 import retrofit2.HttpException
 import java.io.IOException
@@ -48,6 +52,7 @@ data class MonitorUiState(
     val etaMinutes: Long? = null,
     val alertFired: Boolean = false,
     val checkError: String? = null,
+    val monitorError: String? = null,
     val historySocs: List<Double?> = emptyList(),
     val historyStart: Long = 0,
     val historyIntervalMinutes: Int = 5,
@@ -58,8 +63,7 @@ data class MonitorUiState(
 open class MonitorViewModel(
     private val store: SettingsStore,
     private val apiFactory: (BridgeConfig) -> HermesApi,
-    private val startMonitoring: (MonitorConfig) -> Unit,
-    private val stopMonitoring: () -> Unit,
+    private val fcmTokenProvider: suspend () -> String? = defaultFcmTokenProvider,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MonitorUiState())
@@ -220,6 +224,7 @@ open class MonitorViewModel(
                     )
                 }
                 loadHistory()
+                syncTriggerStatus()
             } catch (e: TimeoutCancellationException) {
                 _uiState.update {
                     it.copy(
@@ -286,11 +291,12 @@ open class MonitorViewModel(
         }
     }
 
-    /** Refreshes every SOC value (top card, history chart, and last-SOC line). */
+    /** Refreshes SOC, history, and the bridge trigger status. */
     fun refreshAll() {
         if (!_uiState.value.connected) return
         checkNow()
         loadHistory()
+        syncTriggerStatus()
     }
 
     private fun computeEta(snapshot: com.github.diarmaidlindsay.sigenergybattery.domain.model.SolarSnapshot): Long? {
@@ -337,6 +343,10 @@ open class MonitorViewModel(
         }
     }
 
+    /**
+     * Arms the battery SOC trigger on the bridge. The bridge owns the
+     * scheduling; this app just configures it and registers for FCM pushes.
+     */
     fun beginMonitoring() {
         val state = _uiState.value
         val actions = BatteryMonitor.normalizeActions(state.triggerActions)
@@ -350,25 +360,88 @@ open class MonitorViewModel(
         )
         viewModelScope.launch {
             store.saveMonitorConfig(config)
+            _uiState.update { it.copy(monitorError = null) }
+            runCatching {
+                apiFactory(currentConfig()).setTrigger(config.toTriggerDto())
+            }.onSuccess {
+                _uiState.update { it.copy(alertFired = false) }
+                PollingState.alertFired.value = false
+                PollingState.active.value = true
+            }.onFailure { e ->
+                _uiState.update { it.copy(monitorError = e.toMonitorMessage()) }
+            }
+            registerDeviceToken()
         }
-        _uiState.update { it.copy(alertFired = false) }
-        PollingState.alertFired.value = false
-        startMonitoring(config)
     }
 
     fun cancelMonitoring() {
-        stopMonitoring()
+        viewModelScope.launch {
+            runCatching { apiFactory(currentConfig()).deleteTrigger() }
+                .onFailure { e ->
+                    _uiState.update { it.copy(monitorError = e.toMonitorMessage()) }
+                }
+            PollingState.active.value = false
+            PollingState.alertFired.value = false
+            _uiState.update { it.copy(alertFired = false) }
+        }
     }
 
     fun disconnect() {
-        stopMonitoring()
+        viewModelScope.launch {
+            runCatching { apiFactory(currentConfig()).deleteTrigger() }
+        }
+        PollingState.active.value = false
+        PollingState.alertFired.value = false
         _uiState.update { it.copy(connected = false, alertFired = false) }
     }
 
     fun clearAlert() = _uiState.update { it.copy(alertFired = false) }
 
+    /** Reconciles local state with the bridge's trigger status. */
+    private fun syncTriggerStatus() {
+        if (!_uiState.value.connected) return
+        viewModelScope.launch {
+            runCatching {
+                val status = apiFactory(currentConfig()).getTrigger()
+                PollingState.active.value = status.enabled && !status.fired
+                PollingState.alertFired.value = status.fired
+                status.lastSoc?.let { PollingState.lastSoc.value = it }
+                status.lastCheckedAt?.let { ts ->
+                    PollingState.lastCheckedAt.value = (ts * 1000).toLong()
+                }
+            }
+        }
+    }
+
+    /** Registers this device's FCM token with the bridge (best effort). */
+    private suspend fun registerDeviceToken() {
+        val token = fcmTokenProvider() ?: return
+        runCatching { apiFactory(currentConfig()).registerDevice(DeviceRegisterDto(token)) }
+    }
+
+    private fun MonitorConfig.toTriggerDto(): TriggerConfigDto = TriggerConfigDto(
+        intervalMinutes = intervalMinutes,
+        thresholdSoc = thresholdSoc,
+        direction = direction.name,
+        actions = triggerActions.map { it.name },
+        minerPreset = minerPreset?.slug,
+    )
+
+    private fun Throwable.toMonitorMessage(): String = when (this) {
+        is HttpException -> when (code()) {
+            401 -> "Unauthorized. Check the API key"
+            else -> "Bridge error (HTTP ${code()})"
+        }
+        is IOException -> "Cannot reach ${currentConfig().host}:${currentConfig().port}"
+        else -> message ?: "Failed to update monitoring"
+    }
+
     companion object {
         const val CONNECT_TIMEOUT_MS = 30_000L
+
+        private val defaultFcmTokenProvider: suspend () -> String? = {
+            runCatching { FirebaseMessaging.getInstance().token.await() }.getOrNull()
+        }
     }
 
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
@@ -378,8 +451,6 @@ open class MonitorViewModel(
                 return MonitorViewModel(
                     store = container.settingsStore,
                     apiFactory = container::createApi,
-                    startMonitoring = container::startMonitoring,
-                    stopMonitoring = container::stopMonitoring,
                 ) as T
             }
             throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")

@@ -2,6 +2,8 @@ package com.github.diarmaidlindsay.sigenergybattery.ui
 
 import com.github.diarmaidlindsay.sigenergybattery.MainDispatcherRule
 import com.github.diarmaidlindsay.sigenergybattery.data.api.SolarNowDto
+import com.github.diarmaidlindsay.sigenergybattery.data.api.TriggerConfigDto
+import com.github.diarmaidlindsay.sigenergybattery.data.api.TriggerStatusDto
 import com.github.diarmaidlindsay.sigenergybattery.data.local.SettingsStore
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.BridgeConfig
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.Direction
@@ -11,6 +13,7 @@ import com.github.diarmaidlindsay.sigenergybattery.domain.model.TriggerAction
 import com.github.diarmaidlindsay.sigenergybattery.fakes.FakeHermesApi
 import com.github.diarmaidlindsay.sigenergybattery.fakes.FakeSettingsStore
 import com.github.diarmaidlindsay.sigenergybattery.fakes.HangingHermesApi
+import com.github.diarmaidlindsay.sigenergybattery.service.PollingState
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -20,6 +23,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import retrofit2.HttpException
@@ -31,6 +35,11 @@ class MonitorViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
 
+    @Before
+    fun resetPollingState() {
+        PollingState.reset()
+    }
+
     private val config = BridgeConfig("100.105.141.68", "8500", "key123")
     private val store = FakeSettingsStore(initialBridge = config)
 
@@ -39,8 +48,6 @@ class MonitorViewModelTest {
         val vm = MonitorViewModel(
             store = store,
             apiFactory = { FakeHermesApi(result = SolarNowDto(batterySocPct = 77.5)) },
-            startMonitoring = {},
-            stopMonitoring = {},
         )
         vm.onHostChange("100.105.141.68")
         vm.onPortChange("8500")
@@ -61,8 +68,6 @@ class MonitorViewModelTest {
         val vm = MonitorViewModel(
             store = store,
             apiFactory = { FakeHermesApi(error = unauthorized) },
-            startMonitoring = {},
-            stopMonitoring = {},
         )
         vm.onHostChange("100.105.141.68")
         vm.onPortChange("8500")
@@ -79,8 +84,6 @@ class MonitorViewModelTest {
         val vm = MonitorViewModel(
             store = store,
             apiFactory = { FakeHermesApi(error = IOException("timeout")) },
-            startMonitoring = {},
-            stopMonitoring = {},
         )
         vm.onHostChange("10.0.0.1")
         vm.onPortChange("8500")
@@ -97,8 +100,6 @@ class MonitorViewModelTest {
         val vm = MonitorViewModel(
             store = store,
             apiFactory = { FakeHermesApi() },
-            startMonitoring = {},
-            stopMonitoring = {},
         )
         vm.onHostChange("")
         vm.onPortChange("")
@@ -110,14 +111,12 @@ class MonitorViewModelTest {
     }
 
     @Test
-    fun beginMonitoring_savesConfigAndStartsService() = runTest {
-        var startedConfig: MonitorConfig? = null
-        var stopped = false
+    fun beginMonitoring_postsTriggerAndSavesConfig() = runTest {
+        val api = FakeHermesApi()
         val vm = MonitorViewModel(
             store = store,
-            apiFactory = { FakeHermesApi() },
-            startMonitoring = { startedConfig = it },
-            stopMonitoring = { stopped = true },
+            apiFactory = { api },
+            fcmTokenProvider = { null },
         )
         vm.onIntervalChange(15)
         vm.onThresholdChange(30f)
@@ -125,11 +124,24 @@ class MonitorViewModelTest {
         vm.beginMonitoring()
         advanceUntilIdle()
 
-        assertEquals(MonitorConfig(15, 30.0, Direction.AT_OR_ABOVE), startedConfig)
-        assertEquals(startedConfig, store.savedMonitor)
+        assertEquals(1, api.setTriggerCalls)
+        assertEquals(
+            TriggerConfigDto(
+                intervalMinutes = 15,
+                thresholdSoc = 30.0,
+                direction = "AT_OR_ABOVE",
+                actions = listOf("NOTIFY"),
+                minerPreset = null,
+            ),
+            api.lastTrigger,
+        )
+        assertEquals(MonitorConfig(15, 30.0, Direction.AT_OR_ABOVE), store.savedMonitor)
+        assertTrue(vm.uiState.value.monitoring)
 
         vm.cancelMonitoring()
-        assertTrue(stopped)
+        advanceUntilIdle()
+        assertEquals(1, api.deleteTriggerCalls)
+        assertFalse(vm.uiState.value.monitoring)
     }
 
     @Test
@@ -137,8 +149,6 @@ class MonitorViewModelTest {
         val vm = MonitorViewModel(
             store = store,
             apiFactory = { FakeHermesApi() },
-            startMonitoring = {},
-            stopMonitoring = {},
         )
         vm.onHostChange("100.105.141.68")
         vm.onPortChange("8500")
@@ -164,8 +174,6 @@ class MonitorViewModelTest {
         val vm = MonitorViewModel(
             store = store,
             apiFactory = { FakeHermesApi(history = history) },
-            startMonitoring = {},
-            stopMonitoring = {},
         )
         vm.loadHistory()
         advanceUntilIdle()
@@ -183,8 +191,6 @@ class MonitorViewModelTest {
         val vm = MonitorViewModel(
             store = store,
             apiFactory = { FakeHermesApi(error = IOException("timeout")) },
-            startMonitoring = {},
-            stopMonitoring = {},
         )
         vm.loadHistory()
         advanceUntilIdle()
@@ -202,8 +208,6 @@ class MonitorViewModelTest {
         val vm = MonitorViewModel(
             store = storeWithHistory,
             apiFactory = { FakeHermesApi(result = SolarNowDto(batterySocPct = 60.0)) },
-            startMonitoring = {},
-            stopMonitoring = {},
         )
         advanceUntilIdle()
 
@@ -217,8 +221,6 @@ class MonitorViewModelTest {
         val vm = MonitorViewModel(
             store = store,
             apiFactory = { FakeHermesApi(result = SolarNowDto(batterySocPct = 60.0)) },
-            startMonitoring = {},
-            stopMonitoring = {},
         )
         advanceUntilIdle()
 
@@ -236,8 +238,6 @@ class MonitorViewModelTest {
         val vm = MonitorViewModel(
             store = storeWithHistory,
             apiFactory = { FakeHermesApi(error = IOException("timeout")) },
-            startMonitoring = {},
-            stopMonitoring = {},
         )
         advanceUntilIdle()
 
@@ -251,8 +251,6 @@ class MonitorViewModelTest {
         val vm = MonitorViewModel(
             store = store,
             apiFactory = { HangingHermesApi() },
-            startMonitoring = {},
-            stopMonitoring = {},
         )
         vm.onHostChange("10.0.0.99")
         vm.onPortChange("8500")
@@ -282,8 +280,6 @@ class MonitorViewModelTest {
         val vm = MonitorViewModel(
             store = storeWithTarget,
             apiFactory = { FakeHermesApi(result = dto) },
-            startMonitoring = {},
-            stopMonitoring = {},
         )
         vm.checkNow()
         advanceUntilIdle()
@@ -302,8 +298,6 @@ class MonitorViewModelTest {
         val vm = MonitorViewModel(
             store = store,
             apiFactory = { api },
-            startMonitoring = {},
-            stopMonitoring = {},
         )
         vm.refreshAll()
         advanceUntilIdle()
@@ -320,8 +314,6 @@ class MonitorViewModelTest {
         val vm = MonitorViewModel(
             store = store,
             apiFactory = { api },
-            startMonitoring = {},
-            stopMonitoring = {},
         )
         vm.onHostChange("10.0.0.30")
         vm.onPortChange("8500")
@@ -340,14 +332,12 @@ class MonitorViewModelTest {
 
     // --- Trigger action selection ---
 
-    private fun viewModel(
-        startMonitoring: (MonitorConfig) -> Unit = {},
-    ): MonitorViewModel = MonitorViewModel(
-        store = store,
-        apiFactory = { FakeHermesApi() },
-        startMonitoring = startMonitoring,
-        stopMonitoring = {},
-    )
+    private fun viewModel(api: FakeHermesApi = FakeHermesApi()): MonitorViewModel =
+        MonitorViewModel(
+            store = store,
+            apiFactory = { api },
+            fcmTokenProvider = { null },
+        )
 
     @Test
     fun triggerActions_defaultToNotifyOnly() = runTest {
@@ -396,19 +386,17 @@ class MonitorViewModelTest {
     }
 
     @Test
-    fun beginMonitoring_presetOnly_savesPresetWithoutOn() = runTest {
-        var startedConfig: MonitorConfig? = null
-        val vm = viewModel(startMonitoring = { startedConfig = it })
+    fun beginMonitoring_presetOnly_sendsPresetWithoutOn() = runTest {
+        val api = FakeHermesApi()
+        val vm = viewModel(api)
         vm.onTriggerActionToggle(TriggerAction.SET_POWER_PRESET, true)
         vm.onMinerPresetChange(MinerPreset.LOW)
         vm.beginMonitoring()
         advanceUntilIdle()
 
-        assertEquals(
-            setOf(TriggerAction.NOTIFY, TriggerAction.SET_POWER_PRESET),
-            startedConfig!!.triggerActions,
-        )
-        assertEquals(MinerPreset.LOW, startedConfig!!.minerPreset)
+        assertEquals(1, api.setTriggerCalls)
+        assertEquals(listOf("NOTIFY", "SET_POWER_PRESET"), api.lastTrigger!!.actions)
+        assertEquals("low", api.lastTrigger!!.minerPreset)
     }
 
     @Test
@@ -450,51 +438,79 @@ class MonitorViewModelTest {
     }
 
     @Test
-    fun beginMonitoring_savesActionsAndPreset() = runTest {
-        var startedConfig: MonitorConfig? = null
-        val vm = viewModel(startMonitoring = { startedConfig = it })
+    fun beginMonitoring_sendsActionsAndPreset() = runTest {
+        val api = FakeHermesApi()
+        val vm = viewModel(api)
         vm.onTriggerActionToggle(TriggerAction.MINER_ON, true)
         vm.onTriggerActionToggle(TriggerAction.SET_POWER_PRESET, true)
         vm.onMinerPresetChange(MinerPreset.MAX)
         vm.beginMonitoring()
         advanceUntilIdle()
 
-        val expected = MonitorConfig(
-            intervalMinutes = SettingsStore.DEFAULT_INTERVAL_MINUTES,
-            thresholdSoc = SettingsStore.DEFAULT_THRESHOLD_SOC,
-            direction = SettingsStore.DEFAULT_DIRECTION,
-            triggerActions = setOf(
-                TriggerAction.NOTIFY,
-                TriggerAction.MINER_ON,
-                TriggerAction.SET_POWER_PRESET,
-            ),
-            minerPreset = MinerPreset.MAX,
-        )
-        assertEquals(expected, startedConfig)
-        assertEquals(startedConfig, store.savedMonitor)
+        assertEquals(1, api.setTriggerCalls)
+        assertEquals(listOf("NOTIFY", "MINER_ON", "SET_POWER_PRESET"), api.lastTrigger!!.actions)
+        assertEquals("max", api.lastTrigger!!.minerPreset)
+        assertEquals(MinerPreset.MAX, store.savedMonitor?.minerPreset)
     }
 
     @Test
-    fun beginMonitoring_offOnly_storesNoPreset() = runTest {
-        var startedConfig: MonitorConfig? = null
-        val vm = viewModel(startMonitoring = { startedConfig = it })
+    fun beginMonitoring_offOnly_sendsNoPreset() = runTest {
+        val api = FakeHermesApi()
+        val vm = viewModel(api)
         vm.onTriggerActionToggle(TriggerAction.MINER_OFF, true)
         vm.beginMonitoring()
         advanceUntilIdle()
 
-        assertNotNull(startedConfig)
-        assertEquals(setOf(TriggerAction.NOTIFY, TriggerAction.MINER_OFF), startedConfig!!.triggerActions)
-        assertNull(startedConfig!!.minerPreset)
+        assertEquals(1, api.setTriggerCalls)
+        assertEquals(listOf("NOTIFY", "MINER_OFF"), api.lastTrigger!!.actions)
+        assertNull(api.lastTrigger!!.minerPreset)
+        assertNull(store.savedMonitor?.minerPreset)
     }
 
     @Test
     fun beginMonitoring_deselectAll_fallsBackToNotify() = runTest {
-        var startedConfig: MonitorConfig? = null
-        val vm = viewModel(startMonitoring = { startedConfig = it })
+        val api = FakeHermesApi()
+        val vm = viewModel(api)
         vm.onTriggerActionToggle(TriggerAction.NOTIFY, false)
         vm.beginMonitoring()
         advanceUntilIdle()
 
-        assertEquals(setOf(TriggerAction.NOTIFY), startedConfig!!.triggerActions)
+        assertEquals(1, api.setTriggerCalls)
+        assertEquals(listOf("NOTIFY"), api.lastTrigger!!.actions)
+    }
+
+    @Test
+    fun beginMonitoring_failure_setsMonitorError() = runTest {
+        val api = FakeHermesApi(triggerError = IOException("timeout"))
+        val vm = viewModel(api)
+        vm.beginMonitoring()
+        advanceUntilIdle()
+
+        assertNotNull(vm.uiState.value.monitorError)
+        assertFalse(vm.uiState.value.monitoring)
+    }
+
+    @Test
+    fun connect_syncsFiredTriggerFromBridge() = runTest {
+        val api = FakeHermesApi(
+            result = SolarNowDto(batterySocPct = 97.8),
+            triggerStatus = TriggerStatusDto(
+                enabled = true,
+                fired = true,
+                firedSoc = 97.8,
+                lastSoc = 97.8,
+                lastCheckedAt = 1000.0,
+            ),
+        )
+        val vm = viewModel(api)
+        vm.onHostChange("100.105.141.68")
+        vm.onPortChange("8500")
+        vm.onApiKeyChange("key123")
+        vm.connect()
+        advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.connected)
+        assertTrue(vm.uiState.value.alertFired)
+        assertFalse(vm.uiState.value.monitoring)
     }
 }

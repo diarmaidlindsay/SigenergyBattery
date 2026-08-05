@@ -4,11 +4,8 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -65,31 +62,12 @@ private fun BatteryApp(modifier: Modifier = Modifier) {
         ActivityResultContracts.RequestPermission()
     ) { granted -> notificationsGranted = granted }
 
-    val batteryOptimizationLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { }
-
-    fun requestBatteryOptimizationExemption() {
-        val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-        if (pm.isIgnoringBatteryOptimizations(context.packageName)) return
-        val intent = Intent(
-            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-            Uri.parse("package:${context.packageName}"),
-        )
-        try {
-            batteryOptimizationLauncher.launch(intent)
-        } catch (_: Exception) {
-            // Some OEMs block this intent; monitoring still works via the foreground service.
-        }
-    }
-
     MonitorScreen(
         viewModel = viewModel,
         notificationsGranted = notificationsGranted,
         onRequestNotifications = {
             permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         },
-        onEnsureBackgroundReliability = { requestBatteryOptimizationExemption() },
         modifier = modifier,
     )
 }

@@ -9,6 +9,8 @@ import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFact
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
+import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Headers
 import retrofit2.http.POST
@@ -46,6 +48,46 @@ data class HistoryPointDto(
 @Serializable
 data class MinerActionResponse(
     @SerialName("status") val status: String? = null,
+)
+
+/** Payload sent to the bridge when arming a SOC trigger. */
+@Serializable
+data class TriggerConfigDto(
+    @SerialName("interval_minutes") val intervalMinutes: Int = 5,
+    @SerialName("threshold_soc") val thresholdSoc: Double = 20.0,
+    val direction: String = "AT_OR_BELOW",
+    val actions: List<String> = listOf("NOTIFY"),
+    @SerialName("miner_preset") val minerPreset: String? = null,
+)
+
+/** Full trigger config + runtime status returned by the bridge. */
+@Serializable
+data class TriggerStatusDto(
+    val enabled: Boolean = false,
+    @SerialName("interval_minutes") val intervalMinutes: Int = 5,
+    @SerialName("threshold_soc") val thresholdSoc: Double = 20.0,
+    val direction: String = "AT_OR_BELOW",
+    val actions: List<String> = listOf("NOTIFY"),
+    @SerialName("miner_preset") val minerPreset: String? = null,
+    @SerialName("created_at") val createdAt: Double? = null,
+    val fired: Boolean = false,
+    @SerialName("fired_at") val firedAt: Double? = null,
+    @SerialName("fired_soc") val firedSoc: Double? = null,
+    @SerialName("action_error") val actionError: String? = null,
+    @SerialName("last_checked_at") val lastCheckedAt: Double? = null,
+    @SerialName("last_soc") val lastSoc: Double? = null,
+)
+
+/** Generic acknowledgment for trigger/device endpoints. */
+@Serializable
+data class TriggerAckDto(
+    @SerialName("status") val status: String? = null,
+)
+
+/** FCM device token registration sent to the bridge. */
+@Serializable
+data class DeviceRegisterDto(
+    val token: String,
 )
 
 /** Miner status for switch idempotency and the power-preset decision. */
@@ -90,6 +132,22 @@ interface HermesApi {
     @GET("api/miner/status")
     @Headers("Accept: application/json")
     suspend fun minerStatus(): MinerStatusDto
+
+    @POST("api/trigger")
+    @Headers("Accept: application/json")
+    suspend fun setTrigger(@Body body: TriggerConfigDto): TriggerStatusDto
+
+    @GET("api/trigger")
+    @Headers("Accept: application/json")
+    suspend fun getTrigger(): TriggerStatusDto
+
+    @DELETE("api/trigger")
+    @Headers("Accept: application/json")
+    suspend fun deleteTrigger(): TriggerAckDto
+
+    @POST("api/device")
+    @Headers("Accept: application/json")
+    suspend fun registerDevice(@Body body: DeviceRegisterDto): TriggerAckDto
 }
 
 object ApiClientFactory {

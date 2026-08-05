@@ -10,23 +10,15 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.github.diarmaidlindsay.sigenergybattery.MainActivity
 import com.github.diarmaidlindsay.sigenergybattery.R
-import com.github.diarmaidlindsay.sigenergybattery.domain.model.MonitorConfig
 
-/** Creates notification channels and builds the ongoing/alert notifications. */
+/** Creates the alert notification channel and builds trigger-fired alerts. */
 object NotificationHelper {
 
-    const val CHANNEL_MONITORING = "hermes_monitoring"
     const val CHANNEL_ALERTS = "hermes_alerts"
-    const val NOTIF_ID_ONGOING = 1
     const val NOTIF_ID_ALERT = 2
 
     fun createChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
-        val monitoring = NotificationChannel(
-            CHANNEL_MONITORING,
-            context.getString(R.string.channel_monitoring),
-            NotificationManager.IMPORTANCE_LOW,
-        ).apply { description = "Ongoing battery polling indicator" }
         val alerts = NotificationChannel(
             CHANNEL_ALERTS,
             context.getString(R.string.channel_alerts),
@@ -35,7 +27,6 @@ object NotificationHelper {
             description = "Battery SOC threshold alerts"
             setSound(null, null)
         }
-        manager.createNotificationChannel(monitoring)
         manager.createNotificationChannel(alerts)
     }
 
@@ -47,68 +38,27 @@ object NotificationHelper {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
-    fun ongoing(
+    /**
+     * Builds the threshold alert notification from the FCM push payload. The
+     * bridge already decided the trigger fired; here we render it in-app.
+     */
+    fun alertFromPush(
         context: Context,
-        config: MonitorConfig,
-        lastSoc: Double?,
-        etaLabel: String?,
-        transientError: String?,
+        soc: Double?,
+        threshold: Double?,
+        direction: String?,
+        fallbackBody: String?,
     ): Notification {
-        val socText = lastSoc?.let { "%.1f%%".format(it) } ?: "N/A"
-        val body = buildString {
-            append("Checking every ${config.intervalMinutes}m")
-            append("\nLast SOC: $socText")
-            if (transientError != null) {
-                append("\nLast check failed: $transientError")
-            } else if (etaLabel != null) {
-                append("\n$etaLabel")
-            }
+        val title = soc?.let { "Battery SOC is %.1f%%".format(it) } ?: "Battery SOC alert"
+        val dirText = when (direction) {
+            "AT_OR_ABOVE" -> "at or above"
+            "AT_OR_BELOW" -> "at or below"
+            else -> null
         }
-        val contentText = buildString {
-            append("Last SOC: $socText")
-            etaLabel?.let { append(" · $it") }
-        }
-        return NotificationCompat.Builder(context, CHANNEL_MONITORING)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Monitoring battery SOC")
-            .setContentText(contentText)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setContentIntent(contentIntent(context))
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .build()
-    }
-
-    fun alert(
-        context: Context,
-        soc: Double,
-        config: MonitorConfig,
-    ): Notification = buildAlert(context, soc, config, extraLine = null)
-
-    fun alertWithError(
-        context: Context,
-        soc: Double,
-        config: MonitorConfig,
-        error: String,
-    ): Notification = buildAlert(context, soc, config, extraLine = "Action failed: $error")
-
-    private fun buildAlert(
-        context: Context,
-        soc: Double,
-        config: MonitorConfig,
-        extraLine: String?,
-    ): Notification {
-        val directionText = when (config.direction) {
-            com.github.diarmaidlindsay.sigenergybattery.domain.model.Direction.AT_OR_ABOVE ->
-                "at or above"
-            com.github.diarmaidlindsay.sigenergybattery.domain.model.Direction.AT_OR_BELOW ->
-                "at or below"
-        }
-        val title = "Battery SOC is %.1f%%".format(soc)
-        val text = buildString {
-            append("Battery is $directionText ${config.thresholdSoc.toInt()}%. Monitoring stopped.")
-            extraLine?.let { append("\n$it") }
+        val text = if (dirText != null && threshold != null) {
+            "Battery is $dirText ${threshold.toInt()}%. Monitoring stopped."
+        } else {
+            fallbackBody ?: "Battery SOC threshold reached. Monitoring stopped."
         }
         return NotificationCompat.Builder(context, CHANNEL_ALERTS)
             .setSmallIcon(R.drawable.ic_notification)

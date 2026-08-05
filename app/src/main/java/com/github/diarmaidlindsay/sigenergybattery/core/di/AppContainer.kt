@@ -6,8 +6,6 @@ import com.github.diarmaidlindsay.sigenergybattery.data.api.HermesApi
 import com.github.diarmaidlindsay.sigenergybattery.data.local.DataStoreSettingsStore
 import com.github.diarmaidlindsay.sigenergybattery.data.local.SettingsStore
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.BridgeConfig
-import com.github.diarmaidlindsay.sigenergybattery.domain.model.MonitorConfig
-import com.github.diarmaidlindsay.sigenergybattery.service.PollingService
 
 /**
  * Minimal manual dependency injection container. Keeps the object graph in one
@@ -21,14 +19,4 @@ class AppContainer(context: Context) {
 
     /** Creates a Hermes API client bound to [config] (bearer auth baked in). */
     fun createApi(config: BridgeConfig): HermesApi = ApiClientFactory.create(config)
-
-    /** Starts the background polling service (Android context-dependent). */
-    fun startMonitoring(config: MonitorConfig) {
-        PollingService.start(appContext)
-    }
-
-    /** Stops the background polling service. */
-    fun stopMonitoring() {
-        PollingService.stop(appContext)
-    }
 }

@@ -3,9 +3,10 @@ package com.github.diarmaidlindsay.sigenergybattery.service
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
- * Tiny shared state bridging the [PollingService] (which runs in the
- * background) and the UI. Kept as a plain singleton to avoid extra
- * IPC/DI machinery for such a small app.
+ * Shared state bridging the bridge-side trigger status and the UI. The
+ * scheduling now runs on the Hermes bridge; the app syncs this state from
+ * `GET /api/trigger` and from incoming FCM pushes. Kept as a plain singleton
+ * to avoid extra IPC/DI machinery for such a small app.
  */
 object PollingState {
     val active = MutableStateFlow(false)

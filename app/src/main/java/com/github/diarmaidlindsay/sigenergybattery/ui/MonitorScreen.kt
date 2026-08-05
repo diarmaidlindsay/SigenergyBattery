@@ -72,7 +72,6 @@ fun MonitorScreen(
     viewModel: MonitorViewModel,
     notificationsGranted: Boolean,
     onRequestNotifications: () -> Unit,
-    onEnsureBackgroundReliability: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -100,7 +99,6 @@ fun MonitorScreen(
                 state = state,
                 notificationsGranted = notificationsGranted,
                 onRequestNotifications = onRequestNotifications,
-                onEnsureBackgroundReliability = onEnsureBackgroundReliability,
                 onIntervalChange = viewModel::onIntervalChange,
                 onThresholdChange = viewModel::onThresholdChange,
                 onDirectionChange = viewModel::onDirectionChange,
@@ -228,7 +226,6 @@ private fun MonitorPanel(
     state: MonitorUiState,
     notificationsGranted: Boolean,
     onRequestNotifications: () -> Unit,
-    onEnsureBackgroundReliability: () -> Unit,
     onIntervalChange: (Int) -> Unit,
     onThresholdChange: (Float) -> Unit,
     onDirectionChange: (Direction) -> Unit,
@@ -325,6 +322,10 @@ private fun MonitorPanel(
                 onMinerPresetChange = onMinerPresetChange,
             )
 
+            state.monitorError?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+            }
+
             when {
                 state.monitoring -> {
                     StatusLine(state)
@@ -356,7 +357,7 @@ private fun MonitorPanel(
                         Icon(Icons.Default.Info, contentDescription = null, tint = WarnYellow)
                         Spacer(modifier = Modifier.size(8.dp))
                         Text(
-                            "Monitoring is off. It runs in the background and stops when the alert fires.",
+                            "Monitoring is off. The bridge checks the battery on the interval you set and stops when the alert fires.",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary,
                         )
@@ -365,7 +366,6 @@ private fun MonitorPanel(
                         onClick = {
                             if (notificationsGranted) {
                                 onStart()
-                                onEnsureBackgroundReliability()
                             } else {
                                 onRequestNotifications()
                             }

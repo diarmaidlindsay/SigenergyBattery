@@ -4,6 +4,10 @@ import com.github.diarmaidlindsay.sigenergybattery.data.api.HermesApi
 import com.github.diarmaidlindsay.sigenergybattery.data.api.MinerActionResponse
 import com.github.diarmaidlindsay.sigenergybattery.data.api.MinerStatusDto
 import com.github.diarmaidlindsay.sigenergybattery.data.api.SolarNowDto
+import com.github.diarmaidlindsay.sigenergybattery.data.api.DeviceRegisterDto
+import com.github.diarmaidlindsay.sigenergybattery.data.api.TriggerAckDto
+import com.github.diarmaidlindsay.sigenergybattery.data.api.TriggerConfigDto
+import com.github.diarmaidlindsay.sigenergybattery.data.api.TriggerStatusDto
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import com.github.diarmaidlindsay.sigenergybattery.data.local.SettingsStore
@@ -49,6 +53,12 @@ class HangingHermesApi : HermesApi {
     override suspend fun setPowerPreset(preset: String): MinerActionResponse =
         kotlinx.coroutines.awaitCancellation()
     override suspend fun minerStatus(): MinerStatusDto = kotlinx.coroutines.awaitCancellation()
+    override suspend fun setTrigger(body: TriggerConfigDto): TriggerStatusDto =
+        kotlinx.coroutines.awaitCancellation()
+    override suspend fun getTrigger(): TriggerStatusDto = kotlinx.coroutines.awaitCancellation()
+    override suspend fun deleteTrigger(): TriggerAckDto = kotlinx.coroutines.awaitCancellation()
+    override suspend fun registerDevice(body: DeviceRegisterDto): TriggerAckDto =
+        kotlinx.coroutines.awaitCancellation()
 }
 
 class FakeHermesApi(
@@ -56,6 +66,8 @@ class FakeHermesApi(
     private val error: Throwable? = null,
     private val history: com.github.diarmaidlindsay.sigenergybattery.data.api.SolarHistoryDto? = null,
     private val minerStatus: MinerStatusDto? = null,
+    private val triggerStatus: TriggerStatusDto? = null,
+    private val triggerError: Throwable? = null,
 ) : HermesApi {
     var calls = 0
     var historyCalls = 0
@@ -63,6 +75,12 @@ class FakeHermesApi(
     var minerOffCalls = 0
     var powerPresetCalls = 0
     var minerStatusCalls = 0
+    var setTriggerCalls = 0
+    var getTriggerCalls = 0
+    var deleteTriggerCalls = 0
+    var deviceRegisterCalls = 0
+    var lastTrigger: TriggerConfigDto? = null
+    var lastDeviceToken: String? = null
     var lastPreset: String? = null
 
     override suspend fun solarNow(): SolarNowDto {
@@ -100,5 +118,31 @@ class FakeHermesApi(
         minerStatusCalls++
         error?.let { throw it }
         return minerStatus ?: MinerStatusDto()
+    }
+
+    override suspend fun setTrigger(body: TriggerConfigDto): TriggerStatusDto {
+        setTriggerCalls++
+        lastTrigger = body
+        triggerError?.let { throw it }
+        return triggerStatus ?: TriggerStatusDto(enabled = true)
+    }
+
+    override suspend fun getTrigger(): TriggerStatusDto {
+        getTriggerCalls++
+        triggerError?.let { throw it }
+        return triggerStatus ?: TriggerStatusDto()
+    }
+
+    override suspend fun deleteTrigger(): TriggerAckDto {
+        deleteTriggerCalls++
+        triggerError?.let { throw it }
+        return TriggerAckDto("ok")
+    }
+
+    override suspend fun registerDevice(body: DeviceRegisterDto): TriggerAckDto {
+        deviceRegisterCalls++
+        lastDeviceToken = body.token
+        triggerError?.let { throw it }
+        return TriggerAckDto("ok")
     }
 }
