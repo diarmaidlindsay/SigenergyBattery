@@ -513,4 +513,70 @@ class MonitorViewModelTest {
         assertTrue(vm.uiState.value.alertFired)
         assertFalse(vm.uiState.value.monitoring)
     }
+
+    @Test
+    fun disconnect_cancelsTriggerWhenSettingOn() = runTest {
+        val api = FakeHermesApi()
+        val vm = viewModel(api)
+        vm.onHostChange("100.105.141.68")
+        vm.onPortChange("8500")
+        vm.onApiKeyChange("key123")
+        vm.connect()
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.connected)
+        assertTrue(vm.uiState.value.cancelTriggerOnDisconnect)
+
+        vm.disconnect()
+        advanceUntilIdle()
+
+        assertEquals(1, api.deleteTriggerCalls)
+        assertFalse(vm.uiState.value.connected)
+        assertFalse(vm.uiState.value.monitoring)
+    }
+
+    @Test
+    fun disconnect_leavesTriggerRunningWhenSettingOff() = runTest {
+        val api = FakeHermesApi()
+        val storeOff = FakeSettingsStore(
+            initialBridge = config,
+            initialCancelTriggerOnDisconnect = false,
+        )
+        val vm = MonitorViewModel(
+            store = storeOff,
+            apiFactory = { api },
+            fcmTokenProvider = { null },
+        )
+        vm.onHostChange("100.105.141.68")
+        vm.onPortChange("8500")
+        vm.onApiKeyChange("key123")
+        vm.connect()
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.connected)
+        assertFalse(vm.uiState.value.cancelTriggerOnDisconnect)
+
+        vm.disconnect()
+        advanceUntilIdle()
+
+        assertEquals(0, api.deleteTriggerCalls)
+        assertFalse(vm.uiState.value.connected)
+        assertFalse(vm.uiState.value.monitoring)
+    }
+
+    @Test
+    fun onCancelTriggerOnDisconnectChange_persistsSetting() = runTest {
+        val vm = viewModel()
+        assertTrue(vm.uiState.value.cancelTriggerOnDisconnect)
+
+        vm.onCancelTriggerOnDisconnectChange(false)
+        advanceUntilIdle()
+
+        assertFalse(vm.uiState.value.cancelTriggerOnDisconnect)
+        assertEquals(false, store.savedCancelOnDisconnect)
+
+        vm.onCancelTriggerOnDisconnectChange(true)
+        advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.cancelTriggerOnDisconnect)
+        assertEquals(true, store.savedCancelOnDisconnect)
+    }
 }

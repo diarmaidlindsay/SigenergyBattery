@@ -53,6 +53,7 @@ data class MonitorUiState(
     val alertFired: Boolean = false,
     val checkError: String? = null,
     val monitorError: String? = null,
+    val cancelTriggerOnDisconnect: Boolean = SettingsStore.DEFAULT_CANCEL_TRIGGER_ON_DISCONNECT,
     val historySocs: List<Double?> = emptyList(),
     val historyStart: Long = 0,
     val historyIntervalMinutes: Int = 5,
@@ -103,6 +104,11 @@ open class MonitorViewModel(
                     val config = store.bridgeConfig.first()
                     attemptConnect(config, isAuto = true)
                 }
+            }
+        }
+        viewModelScope.launch {
+            store.cancelTriggerOnDisconnect.collect { value ->
+                _uiState.update { it.copy(cancelTriggerOnDisconnect = value) }
             }
         }
         viewModelScope.launch {
@@ -171,6 +177,15 @@ open class MonitorViewModel(
 
     fun onMinerPresetChange(preset: MinerPreset) =
         _uiState.update { it.copy(minerPreset = preset) }
+
+    /**
+     * Toggles whether tapping Disconnect also cancels the bridge trigger. When
+     * off, disconnecting leaves the scheduled monitoring running on the bridge.
+     */
+    fun onCancelTriggerOnDisconnectChange(value: Boolean) {
+        _uiState.update { it.copy(cancelTriggerOnDisconnect = value) }
+        viewModelScope.launch { store.setCancelTriggerOnDisconnect(value) }
+    }
 
     fun currentConfig(): BridgeConfig = with(_uiState.value) {
         BridgeConfig(host = host, port = port, apiKey = apiKey)
@@ -388,7 +403,9 @@ open class MonitorViewModel(
 
     fun disconnect() {
         viewModelScope.launch {
-            runCatching { apiFactory(currentConfig()).deleteTrigger() }
+            if (_uiState.value.cancelTriggerOnDisconnect) {
+                runCatching { apiFactory(currentConfig()).deleteTrigger() }
+            }
         }
         PollingState.active.value = false
         PollingState.alertFired.value = false

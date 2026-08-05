@@ -23,9 +23,11 @@ interface SettingsStore {
     val bridgeConfig: Flow<BridgeConfig>
     val monitorConfig: Flow<MonitorConfig>
     val hasConnectedBefore: Flow<Boolean>
+    val cancelTriggerOnDisconnect: Flow<Boolean>
     suspend fun saveBridgeConfig(config: BridgeConfig)
     suspend fun saveMonitorConfig(config: MonitorConfig)
     suspend fun setHasConnectedBefore(value: Boolean)
+    suspend fun setCancelTriggerOnDisconnect(value: Boolean)
 
     companion object {
         val DEFAULT_HOST = "10.0.0.30"
@@ -36,6 +38,7 @@ interface SettingsStore {
         val DEFAULT_DIRECTION = Direction.AT_OR_BELOW
         val DEFAULT_TRIGGER_ACTIONS = setOf(TriggerAction.NOTIFY)
         val DEFAULT_MINER_PRESET = MinerPreset.EFFICIENT
+        const val DEFAULT_CANCEL_TRIGGER_ON_DISCONNECT = true
     }
 }
 
@@ -55,6 +58,7 @@ class DataStoreSettingsStore(context: Context) : SettingsStore {
         val TRIGGER_ACTIONS = stringPreferencesKey("trigger_actions")
         val MINER_PRESET = stringPreferencesKey("miner_preset")
         val HAS_CONNECTED_BEFORE = booleanPreferencesKey("has_connected_before")
+        val CANCEL_TRIGGER_ON_DISCONNECT = booleanPreferencesKey("cancel_trigger_on_disconnect")
     }
 
     override val bridgeConfig: Flow<BridgeConfig> = dataStore.data.map { prefs ->
@@ -87,6 +91,10 @@ class DataStoreSettingsStore(context: Context) : SettingsStore {
         prefs[Keys.HAS_CONNECTED_BEFORE] ?: false
     }
 
+    override val cancelTriggerOnDisconnect: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[Keys.CANCEL_TRIGGER_ON_DISCONNECT] ?: DEFAULT_CANCEL_TRIGGER_ON_DISCONNECT
+    }
+
     override suspend fun saveBridgeConfig(config: BridgeConfig) {
         dataStore.edit {
             it[Keys.HOST] = config.host.trim()
@@ -112,6 +120,10 @@ class DataStoreSettingsStore(context: Context) : SettingsStore {
         dataStore.edit { it[Keys.HAS_CONNECTED_BEFORE] = value }
     }
 
+    override suspend fun setCancelTriggerOnDisconnect(value: Boolean) {
+        dataStore.edit { it[Keys.CANCEL_TRIGGER_ON_DISCONNECT] = value }
+    }
+
     companion object {
         val DEFAULT_HOST = "10.0.0.30"
         val DEFAULT_PORT = "8500"
@@ -121,5 +133,6 @@ class DataStoreSettingsStore(context: Context) : SettingsStore {
         val DEFAULT_DIRECTION = Direction.AT_OR_BELOW
         val DEFAULT_TRIGGER_ACTIONS = setOf(TriggerAction.NOTIFY)
         val DEFAULT_MINER_PRESET = MinerPreset.EFFICIENT
+        const val DEFAULT_CANCEL_TRIGGER_ON_DISCONNECT = true
     }
 }

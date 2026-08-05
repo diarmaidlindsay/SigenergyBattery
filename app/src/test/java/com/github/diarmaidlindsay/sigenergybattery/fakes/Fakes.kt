@@ -18,16 +18,20 @@ class FakeSettingsStore(
     initialBridge: BridgeConfig = BridgeConfig("100.105.141.68", "8500", "key123"),
     initialMonitor: MonitorConfig = MonitorConfig(5, 20.0, com.github.diarmaidlindsay.sigenergybattery.domain.model.Direction.AT_OR_BELOW),
     hasConnectedBefore: Boolean = false,
+    initialCancelTriggerOnDisconnect: Boolean = true,
 ) : SettingsStore {
     private val bridge = MutableStateFlow(initialBridge)
     private val monitor = MutableStateFlow(initialMonitor)
     private val connected = MutableStateFlow(hasConnectedBefore)
+    private val cancelOnDisconnect = MutableStateFlow(initialCancelTriggerOnDisconnect)
     var savedBridge: BridgeConfig? = null
     var savedMonitor: MonitorConfig? = null
+    var savedCancelOnDisconnect: Boolean? = null
 
     override val bridgeConfig: Flow<BridgeConfig> = bridge
     override val monitorConfig: Flow<MonitorConfig> = monitor
     override val hasConnectedBefore: Flow<Boolean> = connected
+    override val cancelTriggerOnDisconnect: Flow<Boolean> = cancelOnDisconnect
 
     override suspend fun saveBridgeConfig(config: BridgeConfig) {
         savedBridge = config
@@ -41,6 +45,11 @@ class FakeSettingsStore(
 
     override suspend fun setHasConnectedBefore(value: Boolean) {
         connected.value = value
+    }
+
+    override suspend fun setCancelTriggerOnDisconnect(value: Boolean) {
+        savedCancelOnDisconnect = value
+        cancelOnDisconnect.value = value
     }
 }
 

@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -38,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -104,6 +106,7 @@ fun MonitorScreen(
                 onDirectionChange = viewModel::onDirectionChange,
                 onTriggerActionToggle = viewModel::onTriggerActionToggle,
                 onMinerPresetChange = viewModel::onMinerPresetChange,
+                onCancelTriggerOnDisconnectChange = viewModel::onCancelTriggerOnDisconnectChange,
                 onCheckNow = viewModel::checkNow,
                 onLoadHistory = viewModel::loadHistory,
                 onStart = viewModel::beginMonitoring,
@@ -231,6 +234,7 @@ private fun MonitorPanel(
     onDirectionChange: (Direction) -> Unit,
     onTriggerActionToggle: (TriggerAction, Boolean) -> Unit,
     onMinerPresetChange: (MinerPreset) -> Unit,
+    onCancelTriggerOnDisconnectChange: (Boolean) -> Unit,
     onCheckNow: () -> Unit,
     onLoadHistory: () -> Unit,
     onStart: () -> Unit,
@@ -238,6 +242,8 @@ private fun MonitorPanel(
     onDisconnect: () -> Unit,
     onDismissAlert: () -> Unit,
 ) {
+    var showSettings by remember { mutableStateOf(false) }
+
     SocCard(state)
 
     HistoryCard(state = state, onRefresh = onLoadHistory)
@@ -271,7 +277,40 @@ private fun MonitorPanel(
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("Alert settings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Alert settings",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = { showSettings = !showSettings }) {
+                    Icon(
+                        Icons.Default.Settings,
+                        contentDescription = if (showSettings) "Hide settings" else "Show settings",
+                    )
+                }
+            }
+
+            if (showSettings) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Stop bridge monitoring on disconnect",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            "When off, disconnecting only drops this app; the scheduled trigger keeps running on the bridge.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                        )
+                    }
+                    Switch(
+                        checked = state.cancelTriggerOnDisconnect,
+                        onCheckedChange = onCancelTriggerOnDisconnectChange,
+                    )
+                }
+            }
 
             IntervalDropdown(intervalMinutes = state.intervalMinutes, onIntervalChange = onIntervalChange)
 
