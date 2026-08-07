@@ -149,14 +149,17 @@ private fun StrategyStatusCard(state: MonitorUiState) {
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                 )
-                state.strategyEtaMinutes?.let { eta ->
-                    next?.let {
-                        Text(
-                            "Next: ${it.name} (${conditionLabel(it.condition)}) in ${SocEtaCalculator.formatMinutes(eta)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                next?.let {
+                    val label = if (state.strategyEtaMinutes != null) {
+                        "Next: ${it.name} (${conditionLabel(it.condition)}) in ${SocEtaCalculator.formatMinutes(state.strategyEtaMinutes)}"
+                    } else {
+                        "Next: ${it.name} (${conditionLabel(it.condition)})"
                     }
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
                 state.strategyLastError?.let {
                     Text(
