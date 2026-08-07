@@ -22,6 +22,7 @@ import com.github.diarmaidlindsay.sigenergybattery.domain.model.Direction
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.MinerPreset
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.MonitorConfig
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.Season
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.SolarSnapshot
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.StrategyConfig
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.StrategyStep
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.TriggerAction
@@ -76,6 +77,7 @@ data class MonitorUiState(
     val strategyLastTransitionAt: Long? = null,
     val strategyLastSoc: Double? = null,
     val strategyLastError: String? = null,
+    val strategyEtaMinutes: Long? = null,
     val strategyActiveHoursStart: String = "06:00",
     val strategyActiveHoursEnd: String = "22:00",
     val strategyIntervalMinutes: Int = 5,
@@ -99,6 +101,9 @@ open class MonitorViewModel(
     open val uiState: StateFlow<MonitorUiState> = _uiState.asStateFlow()
 
     private var autoConnectAttempted = false
+
+    /** Most recent live snapshot, kept for strategy ETA recomputation. */
+    private var lastSnapshot: SolarSnapshot? = null
 
     init {
         viewModelScope.launch {
@@ -171,7 +176,16 @@ open class MonitorViewModel(
         }
         viewModelScope.launch {
             PollingState.strategyCurrentStep.collect { step ->
-                _uiState.update { it.copy(strategyCurrentStep = step) }
+                _uiState.update {
+                    it.copy(
+                        strategyCurrentStep = step,
+                        strategyEtaMinutes = computeStrategyEta(
+                            enabled = it.strategyEnabled,
+                            steps = it.strategySteps,
+                            currentStep = step,
+                        ),
+                    )
+                }
             }
         }
         viewModelScope.launch {
@@ -270,6 +284,12 @@ open class MonitorViewModel(
                 store.saveBridgeConfig(config)
                 store.setHasConnectedBefore(true)
                 val now = System.currentTimeMillis()
+                lastSnapshot = snapshot
+                val strategyEta = computeStrategyEta(
+                    enabled = _uiState.value.strategyEnabled,
+                    steps = _uiState.value.strategySteps,
+                    currentStep = _uiState.value.strategyCurrentStep,
+                )
                 _uiState.update {
                     it.copy(
                         isConnecting = false,
@@ -279,6 +299,7 @@ open class MonitorViewModel(
                         lastSoc = snapshot.socPct,
                         lastChecked = now,
                         etaMinutes = computeEta(snapshot),
+                        strategyEtaMinutes = strategyEta,
                     )
                 }
                 loadHistory()
@@ -333,6 +354,12 @@ open class MonitorViewModel(
             try {
                 val snapshot = apiFactory(config).solarNow().toSnapshot()
                 val now = System.currentTimeMillis()
+                lastSnapshot = snapshot
+                val strategyEta = computeStrategyEta(
+                    enabled = _uiState.value.strategyEnabled,
+                    steps = _uiState.value.strategySteps,
+                    currentStep = _uiState.value.strategyCurrentStep,
+                )
                 _uiState.update {
                     it.copy(
                         checking = false,
@@ -340,6 +367,7 @@ open class MonitorViewModel(
                         lastSoc = snapshot.socPct,
                         lastChecked = now,
                         etaMinutes = computeEta(snapshot),
+                        strategyEtaMinutes = strategyEta,
                         checkError = null,
                     )
                 }
@@ -360,13 +388,35 @@ open class MonitorViewModel(
         syncStrategyStatus()
     }
 
-    private fun computeEta(snapshot: com.github.diarmaidlindsay.sigenergybattery.domain.model.SolarSnapshot): Long? {
+    private fun computeEta(snapshot: SolarSnapshot): Long? {
         val soc = snapshot.socPct ?: return null
         val batteryKw = snapshot.batteryKw ?: return null
         val capacityKwh = snapshot.capacityKwh ?: return null
         return SocEtaCalculator.minutesToTarget(
             currentSoc = soc,
             targetSoc = _uiState.value.thresholdSoc.toDouble(),
+            batteryKw = batteryKw,
+            capacityKwh = capacityKwh,
+        )
+    }
+
+    /** ETA for the running strategy to reach the next step's SOC threshold,
+     * computed from the most recent live snapshot. Null when there is no next
+     * step, no snapshot data, or the current rate opposes the target. */
+    private fun computeStrategyEta(
+        enabled: Boolean,
+        steps: List<StrategyStep>,
+        currentStep: Int,
+    ): Long? {
+        if (!enabled) return null
+        val nextStep = steps.getOrNull(currentStep + 1) ?: return null
+        val snapshot = lastSnapshot ?: return null
+        val soc = snapshot.socPct ?: return null
+        val batteryKw = snapshot.batteryKw ?: return null
+        val capacityKwh = snapshot.capacityKwh ?: return null
+        return SocEtaCalculator.minutesToTarget(
+            currentSoc = soc,
+            targetSoc = nextStep.condition.socThreshold,
             batteryKw = batteryKw,
             capacityKwh = capacityKwh,
         )
@@ -437,6 +487,7 @@ open class MonitorViewModel(
                         strategyEnabled = false,
                         strategyName = null,
                         strategyCurrentStep = 0,
+                        strategyEtaMinutes = null,
                     )
                 }
             }.onFailure { e ->
@@ -550,6 +601,11 @@ open class MonitorViewModel(
                 strategyActiveHoursStart = mapped.activeHoursStart ?: it.strategyActiveHoursStart,
                 strategyActiveHoursEnd = mapped.activeHoursEnd ?: it.strategyActiveHoursEnd,
                 strategyIntervalMinutes = mapped.intervalMinutes,
+                strategyEtaMinutes = computeStrategyEta(
+                    enabled = mapped.enabled,
+                    steps = mapped.steps,
+                    currentStep = mapped.currentStep,
+                ),
             )
         }
     }
@@ -614,6 +670,11 @@ open class MonitorViewModel(
                             strategyActiveHoursStart = status.activeHoursStart ?: draft.activeHoursStart,
                             strategyActiveHoursEnd = status.activeHoursEnd ?: draft.activeHoursEnd,
                             strategyIntervalMinutes = status.intervalMinutes,
+                            strategyEtaMinutes = computeStrategyEta(
+                                enabled = true,
+                                steps = status.steps.map { step -> step.toStrategyStep() },
+                                currentStep = status.currentStep,
+                            ),
                             alertFired = false,
                         )
                     }
@@ -642,6 +703,7 @@ open class MonitorViewModel(
                     strategyLastTransitionAt = null,
                     strategyLastSoc = null,
                     strategyLastError = null,
+                    strategyEtaMinutes = null,
                 )
             }
         }

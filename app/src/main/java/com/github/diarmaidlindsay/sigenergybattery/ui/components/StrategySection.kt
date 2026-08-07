@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.github.diarmaidlindsay.sigenergybattery.data.api.toStrategyConfig
+import com.github.diarmaidlindsay.sigenergybattery.domain.SocEtaCalculator
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.Direction
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.MinerPreset
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.Season
@@ -113,6 +114,7 @@ fun StrategySection(
 @Composable
 private fun StrategyStatusCard(state: MonitorUiState) {
     val current = state.strategySteps.getOrNull(state.strategyCurrentStep)
+    val next = state.strategySteps.getOrNull(state.strategyCurrentStep + 1)
     val time = state.strategyLastTransitionAt?.let {
         SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(it))
     }
@@ -147,6 +149,15 @@ private fun StrategyStatusCard(state: MonitorUiState) {
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                 )
+                state.strategyEtaMinutes?.let { eta ->
+                    next?.let {
+                        Text(
+                            "Next: ${it.name} (${conditionLabel(it.condition)}) in ${SocEtaCalculator.formatMinutes(eta)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
                 state.strategyLastError?.let {
                     Text(
                         "Last action error: $it",

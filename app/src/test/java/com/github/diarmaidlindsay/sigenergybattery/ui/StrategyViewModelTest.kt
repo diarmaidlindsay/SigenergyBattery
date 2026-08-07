@@ -1,6 +1,7 @@
 package com.github.diarmaidlindsay.sigenergybattery.ui
 
 import com.github.diarmaidlindsay.sigenergybattery.MainDispatcherRule
+import com.github.diarmaidlindsay.sigenergybattery.data.api.BatteryDto
 import com.github.diarmaidlindsay.sigenergybattery.data.api.SolarNowDto
 import com.github.diarmaidlindsay.sigenergybattery.data.api.StrategyConditionDto
 import com.github.diarmaidlindsay.sigenergybattery.data.api.StrategyConfigDto
@@ -198,6 +199,64 @@ class StrategyViewModelTest {
         assertEquals(2, vm.uiState.value.strategyCurrentStep)
         assertEquals(97.0, vm.uiState.value.strategyLastSoc!!, 0.001)
         assertEquals(1_000_000L, vm.uiState.value.strategyLastTransitionAt)
+    }
+
+    @Test
+    fun checkNow_computesStrategyEtaToNextStep() = runTest {
+        val dto = SolarNowDto(
+            batterySocPct = 50.0,
+            batteryKw = 5.0,
+            battery = BatteryDto(capacityKwh = 20.0),
+        )
+        val api = FakeHermesApi(
+            result = dto,
+            strategyStatus = StrategyStatusDto(
+                enabled = true,
+                name = "Summer (Jun-Aug)",
+                currentStep = 1,
+                steps = summerConfigDto().steps,
+            ),
+        )
+        val vm = MonitorViewModel(store = store, apiFactory = { api }, fcmTokenProvider = { null })
+        vm.onSelectStrategyTemplate(Season.SUMMER, summerConfig())
+        vm.startStrategy()
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.strategyEnabled)
+
+        vm.checkNow()
+        advanceUntilIdle()
+
+        val state = vm.uiState.value
+        // Current step 1 (Ramp Up) → next step 2 (Full Power, ≥90%).
+        // 50 → 90 at 5 kW / 20 kWh (25%/h) = 40 / 25 h = 1.6 h = 96 min.
+        assertEquals(96L, state.strategyEtaMinutes)
+    }
+
+    @Test
+    fun syncStrategyStatus_computesEtaOnceStepsKnown() = runTest {
+        val dto = SolarNowDto(
+            batterySocPct = 60.0,
+            batteryKw = 5.0,
+            battery = BatteryDto(capacityKwh = 20.0),
+        )
+        val api = FakeHermesApi(
+            result = dto,
+            strategyStatus = StrategyStatusDto(
+                enabled = true,
+                name = "Autumn (Sep-Nov)",
+                currentStep = 0,
+                steps = summerConfigDto().steps,
+            ),
+        )
+        val vm = MonitorViewModel(store = store, apiFactory = { api }, fcmTokenProvider = { null })
+        connect(vm, this)
+
+        val state = vm.uiState.value
+        assertTrue(state.strategyEnabled)
+        assertEquals(0, state.strategyCurrentStep)
+        // Current step 0 (Idle, ≤70%) → next step 1 (Ramp Up, ≥80%).
+        // 60 → 80 at 5 kW / 20 kWh (25%/h) = 20 / 25 h = 0.8 h = 48 min.
+        assertEquals(48L, state.strategyEtaMinutes)
     }
 
     @Test
