@@ -22,18 +22,40 @@ class FcmService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         val data = message.data
-        val soc = data["soc"]?.toDoubleOrNull()
-        val threshold = data["threshold"]?.toDoubleOrNull()
-        val direction = data["direction"]
-        val notification = NotificationHelper.alertFromPush(
+        if (data["type"] == "strategy") {
+            handleStrategyPush(data, message.notification?.body)
+        } else {
+            val soc = data["soc"]?.toDoubleOrNull()
+            val threshold = data["threshold"]?.toDoubleOrNull()
+            val direction = data["direction"]
+            val notification = NotificationHelper.alertFromPush(
+                context = this,
+                soc = soc,
+                threshold = threshold,
+                direction = direction,
+                fallbackBody = message.notification?.body,
+            )
+            NotificationHelper.notify(this, NotificationHelper.NOTIF_ID_ALERT, notification)
+            PollingState.alertFired.value = true
+        }
+    }
+
+    /** Renders a strategy-transition push and syncs the in-app state. */
+    private fun handleStrategyPush(data: Map<String, String>, fallbackBody: String?) {
+        val name = data["strategy_name"]
+        val stepName = data["step_name"]
+        val stepIndex = data["step_index"]?.toIntOrNull() ?: 0
+        val notification = NotificationHelper.strategyFromPush(
             context = this,
-            soc = soc,
-            threshold = threshold,
-            direction = direction,
-            fallbackBody = message.notification?.body,
+            strategyName = name,
+            stepName = stepName,
+            soc = data["soc"]?.toDoubleOrNull(),
+            fallbackBody = fallbackBody,
         )
-        NotificationHelper.notify(this, NotificationHelper.NOTIF_ID_ALERT, notification)
-        PollingState.alertFired.value = true
+        NotificationHelper.notify(this, NotificationHelper.NOTIF_ID_STRATEGY, notification)
+        if (!name.isNullOrBlank()) PollingState.strategyName.value = name
+        PollingState.strategyActive.value = true
+        PollingState.strategyCurrentStep.value = stepIndex
     }
 
     override fun onNewToken(token: String) {

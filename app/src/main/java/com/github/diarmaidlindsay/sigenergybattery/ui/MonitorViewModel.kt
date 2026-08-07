@@ -6,8 +6,14 @@ import androidx.lifecycle.viewModelScope
 import com.github.diarmaidlindsay.sigenergybattery.core.di.AppContainer
 import com.github.diarmaidlindsay.sigenergybattery.data.api.DeviceRegisterDto
 import com.github.diarmaidlindsay.sigenergybattery.data.api.HermesApi
+import com.github.diarmaidlindsay.sigenergybattery.data.api.StrategyConfigDto
+import com.github.diarmaidlindsay.sigenergybattery.data.api.StrategyStatusDto
 import com.github.diarmaidlindsay.sigenergybattery.data.api.TriggerConfigDto
 import com.github.diarmaidlindsay.sigenergybattery.data.api.toSnapshot
+import com.github.diarmaidlindsay.sigenergybattery.data.api.toStrategyConfig
+import com.github.diarmaidlindsay.sigenergybattery.data.api.toStrategyConfigDto
+import com.github.diarmaidlindsay.sigenergybattery.data.api.toStrategyStatus
+import com.github.diarmaidlindsay.sigenergybattery.data.api.toStrategyStep
 import com.github.diarmaidlindsay.sigenergybattery.data.local.SettingsStore
 import com.github.diarmaidlindsay.sigenergybattery.domain.BatteryMonitor
 import com.github.diarmaidlindsay.sigenergybattery.domain.SocEtaCalculator
@@ -15,6 +21,9 @@ import com.github.diarmaidlindsay.sigenergybattery.domain.model.BridgeConfig
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.Direction
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.MinerPreset
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.MonitorConfig
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.Season
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.StrategyConfig
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.StrategyStep
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.TriggerAction
 import com.github.diarmaidlindsay.sigenergybattery.service.PollingState
 import com.google.firebase.messaging.FirebaseMessaging
@@ -59,6 +68,25 @@ data class MonitorUiState(
     val historyIntervalMinutes: Int = 5,
     val historyLoading: Boolean = false,
     val historyError: String? = null,
+    // Strategy (automated miner scheduling)
+    val strategyEnabled: Boolean = false,
+    val strategyName: String? = null,
+    val strategySteps: List<StrategyStep> = emptyList(),
+    val strategyCurrentStep: Int = 0,
+    val strategyLastTransitionAt: Long? = null,
+    val strategyLastSoc: Double? = null,
+    val strategyLastError: String? = null,
+    val strategyActiveHoursStart: String = "06:00",
+    val strategyActiveHoursEnd: String = "22:00",
+    val strategyIntervalMinutes: Int = 5,
+    val strategyLoading: Boolean = false,
+    val strategyError: String? = null,
+    val strategyTemplates: Map<String, StrategyConfigDto> = emptyMap(),
+    val strategyTemplatesLoading: Boolean = false,
+    val draftStrategy: StrategyConfig? = null,
+    val draftSeason: Season? = null,
+    val confirmStartTriggerOverridesStrategy: Boolean = false,
+    val confirmStartStrategyOverridesTrigger: Boolean = false,
 )
 
 open class MonitorViewModel(
@@ -134,6 +162,21 @@ open class MonitorViewModel(
         viewModelScope.launch {
             PollingState.alertFired.collect { fired ->
                 if (fired) _uiState.update { it.copy(alertFired = true) }
+            }
+        }
+        viewModelScope.launch {
+            PollingState.strategyActive.collect { active ->
+                _uiState.update { it.copy(strategyEnabled = active) }
+            }
+        }
+        viewModelScope.launch {
+            PollingState.strategyCurrentStep.collect { step ->
+                _uiState.update { it.copy(strategyCurrentStep = step) }
+            }
+        }
+        viewModelScope.launch {
+            PollingState.strategyName.collect { name ->
+                _uiState.update { it.copy(strategyName = name) }
             }
         }
     }
@@ -240,6 +283,8 @@ open class MonitorViewModel(
                 }
                 loadHistory()
                 syncTriggerStatus()
+                syncStrategyStatus()
+                loadStrategyTemplates()
             } catch (e: TimeoutCancellationException) {
                 _uiState.update {
                     it.copy(
@@ -312,6 +357,7 @@ open class MonitorViewModel(
         checkNow()
         loadHistory()
         syncTriggerStatus()
+        syncStrategyStatus()
     }
 
     private fun computeEta(snapshot: com.github.diarmaidlindsay.sigenergybattery.domain.model.SolarSnapshot): Long? {
@@ -382,6 +428,17 @@ open class MonitorViewModel(
                 _uiState.update { it.copy(alertFired = false) }
                 PollingState.alertFired.value = false
                 PollingState.active.value = true
+                // Arming a one-shot trigger cancels any running strategy.
+                PollingState.strategyActive.value = false
+                PollingState.strategyName.value = null
+                PollingState.strategyCurrentStep.value = 0
+                _uiState.update {
+                    it.copy(
+                        strategyEnabled = false,
+                        strategyName = null,
+                        strategyCurrentStep = 0,
+                    )
+                }
             }.onFailure { e ->
                 _uiState.update { it.copy(monitorError = e.toMonitorMessage()) }
             }
@@ -435,6 +492,193 @@ open class MonitorViewModel(
         val token = fcmTokenProvider() ?: return
         runCatching { apiFactory(currentConfig()).registerDevice(DeviceRegisterDto(token)) }
     }
+
+    // ------------------------------------------------------------------
+    // Strategy (automated miner scheduling)
+    // ------------------------------------------------------------------
+
+    /** Fetches the built-in seasonal templates so the UI can offer them. */
+    fun loadStrategyTemplates() {
+        if (!_uiState.value.connected || _uiState.value.strategyTemplates.isNotEmpty()) return
+        _uiState.update { it.copy(strategyTemplatesLoading = true, strategyError = null) }
+        viewModelScope.launch {
+            runCatching { apiFactory(currentConfig()).strategyTemplates() }
+                .onSuccess { dto ->
+                    _uiState.update {
+                        it.copy(
+                            strategyTemplatesLoading = false,
+                            strategyTemplates = dto.templates,
+                            // Prime the draft with the running strategy if we
+                            // have one and no draft exists yet.
+                            draftStrategy = it.draftStrategy ?: runningStrategyFromState(it),
+                        )
+                    }
+                }
+                .onFailure { e ->
+                    _uiState.update {
+                        it.copy(strategyTemplatesLoading = false, strategyError = e.toMonitorMessage())
+                    }
+                }
+        }
+    }
+
+    /** Reconciles local state with the bridge's running strategy. */
+    fun syncStrategyStatus() {
+        if (!_uiState.value.connected) return
+        viewModelScope.launch {
+            runCatching { apiFactory(currentConfig()).getStrategy() }
+                .onSuccess { status ->
+                    applyStrategyStatus(status)
+                }
+        }
+    }
+
+    private fun applyStrategyStatus(status: StrategyStatusDto) {
+        val mapped = status.toStrategyStatus()
+        PollingState.strategyActive.value = mapped.enabled
+        PollingState.strategyName.value = mapped.name
+        PollingState.strategyCurrentStep.value = mapped.currentStep
+        _uiState.update {
+            it.copy(
+                strategyEnabled = mapped.enabled,
+                strategyName = mapped.name,
+                strategySteps = mapped.steps,
+                strategyCurrentStep = mapped.currentStep,
+                strategyLastTransitionAt = mapped.lastTransitionAt,
+                strategyLastSoc = mapped.lastSoc,
+                strategyLastError = mapped.lastError,
+                strategyActiveHoursStart = mapped.activeHoursStart ?: it.strategyActiveHoursStart,
+                strategyActiveHoursEnd = mapped.activeHoursEnd ?: it.strategyActiveHoursEnd,
+                strategyIntervalMinutes = mapped.intervalMinutes,
+            )
+        }
+    }
+
+    /** Loads a seasonal template into the editable draft. */
+    fun onSelectStrategyTemplate(season: Season, config: StrategyConfig) {
+        _uiState.update { it.copy(draftSeason = season, draftStrategy = config, strategyError = null) }
+    }
+
+    /** Updates the editable draft as the user edits steps/active hours. */
+    fun updateDraftStrategy(draft: StrategyConfig) {
+        _uiState.update { it.copy(draftStrategy = draft, strategyError = null) }
+    }
+
+    /** Handles the Start-strategy button, confirming when a one-shot trigger
+     * is active (starting a strategy cancels it). */
+    fun onStartStrategyClick() {
+        if (_uiState.value.strategyEnabled) return
+        val draft = _uiState.value.draftStrategy ?: return
+        if (draft.steps.isEmpty()) return
+        if (_uiState.value.monitoring) {
+            _uiState.update { it.copy(confirmStartStrategyOverridesTrigger = true) }
+        } else {
+            startStrategy()
+        }
+    }
+
+    fun confirmStartStrategyOverridesTrigger() {
+        _uiState.update { it.copy(confirmStartStrategyOverridesTrigger = false) }
+        startStrategy()
+    }
+
+    fun dismissStartStrategyOverridesTrigger() {
+        _uiState.update { it.copy(confirmStartStrategyOverridesTrigger = false) }
+    }
+
+    /** Starts the editable draft strategy on the bridge. */
+    fun startStrategy() {
+        val draft = _uiState.value.draftStrategy ?: return
+        if (draft.steps.isEmpty()) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(strategyLoading = true, strategyError = null) }
+            runCatching { apiFactory(currentConfig()).setStrategy(draft.toStrategyConfigDto()) }
+                .onSuccess { status ->
+                    store.saveStrategyConfig(draft)
+                    PollingState.strategyActive.value = true
+                    PollingState.strategyName.value = status.name
+                    PollingState.strategyCurrentStep.value = status.currentStep
+                    // Starting a strategy cancels any armed one-shot trigger.
+                    PollingState.active.value = false
+                    PollingState.alertFired.value = false
+                    _uiState.update {
+                        it.copy(
+                            strategyLoading = false,
+                            strategyEnabled = true,
+                            strategyName = status.name,
+                            strategySteps = status.steps.map { step -> step.toStrategyStep() },
+                            strategyCurrentStep = status.currentStep,
+                            strategyLastTransitionAt = status.lastTransitionAt?.let { ts -> (ts * 1000).toLong() },
+                            strategyLastSoc = status.lastSoc,
+                            strategyLastError = status.lastError,
+                            strategyActiveHoursStart = status.activeHoursStart ?: draft.activeHoursStart,
+                            strategyActiveHoursEnd = status.activeHoursEnd ?: draft.activeHoursEnd,
+                            strategyIntervalMinutes = status.intervalMinutes,
+                            alertFired = false,
+                        )
+                    }
+                }
+                .onFailure { e ->
+                    _uiState.update { it.copy(strategyLoading = false, strategyError = e.toMonitorMessage()) }
+                }
+        }
+    }
+
+    /** Stops the running strategy on the bridge. */
+    fun stopStrategy() {
+        viewModelScope.launch {
+            runCatching { apiFactory(currentConfig()).deleteStrategy() }
+                .onFailure { e ->
+                    _uiState.update { it.copy(strategyError = e.toMonitorMessage()) }
+                }
+            PollingState.strategyActive.value = false
+            PollingState.strategyName.value = null
+            PollingState.strategyCurrentStep.value = 0
+            _uiState.update {
+                it.copy(
+                    strategyEnabled = false,
+                    strategyName = null,
+                    strategyCurrentStep = 0,
+                    strategyLastTransitionAt = null,
+                    strategyLastSoc = null,
+                    strategyLastError = null,
+                )
+            }
+        }
+    }
+
+    /** Handles the one-shot Start-monitoring button, confirming when a
+     * strategy is running (arming a trigger cancels it). */
+    fun onStartMonitoringClick() {
+        if (_uiState.value.monitoring) return
+        if (_uiState.value.strategyEnabled) {
+            _uiState.update { it.copy(confirmStartTriggerOverridesStrategy = true) }
+        } else {
+            beginMonitoring()
+        }
+    }
+
+    fun confirmStartTriggerOverridesStrategy() {
+        _uiState.update { it.copy(confirmStartTriggerOverridesStrategy = false) }
+        beginMonitoring()
+    }
+
+    fun dismissStartTriggerOverridesStrategy() {
+        _uiState.update { it.copy(confirmStartTriggerOverridesStrategy = false) }
+    }
+
+    private fun runningStrategyFromState(state: MonitorUiState): StrategyConfig? =
+        if (state.strategyEnabled) {
+            StrategyConfig(
+                name = state.strategyName ?: "Miner Strategy",
+                intervalMinutes = state.strategyIntervalMinutes,
+                activeHoursStart = state.strategyActiveHoursStart,
+                activeHoursEnd = state.strategyActiveHoursEnd,
+                steps = state.strategySteps,
+            )
+        } else {
+            null
+        }
 
     private fun MonitorConfig.toTriggerDto(): TriggerConfigDto = TriggerConfigDto(
         intervalMinutes = intervalMinutes,

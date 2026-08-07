@@ -14,6 +14,9 @@ object PollingState {
     val lastCheckedAt = MutableStateFlow<Long?>(null)
     val etaMinutes = MutableStateFlow<Long?>(null)
     val alertFired = MutableStateFlow(false)
+    val strategyActive = MutableStateFlow(false)
+    val strategyName = MutableStateFlow<String?>(null)
+    val strategyCurrentStep = MutableStateFlow(0)
 
     fun reset() {
         active.value = false
@@ -21,5 +24,8 @@ object PollingState {
         lastCheckedAt.value = null
         etaMinutes.value = null
         alertFired.value = false
+        strategyActive.value = false
+        strategyName.value = null
+        strategyCurrentStep.value = 0
     }
 }

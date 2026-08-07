@@ -1,7 +1,14 @@
 package com.github.diarmaidlindsay.sigenergybattery.data.api
 
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.BridgeConfig
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.Direction
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.MinerPreset
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.SolarSnapshot
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.StrategyCondition
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.StrategyConfig
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.StrategyStep
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.StrategyStatus
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.TriggerAction
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -90,6 +97,55 @@ data class DeviceRegisterDto(
     val token: String,
 )
 
+/** One step's condition: SOC threshold + direction, optionally gated by a
+ * minimum time of day (HH:MM, bridge-local). */
+@Serializable
+data class StrategyConditionDto(
+    @SerialName("soc_threshold") val socThreshold: Double = 70.0,
+    val direction: String = "AT_OR_BELOW",
+    @SerialName("time_after") val timeAfter: String? = null,
+)
+
+/** One state in a strategy as sent/received by the bridge. */
+@Serializable
+data class StrategyStepDto(
+    val name: String = "",
+    val condition: StrategyConditionDto = StrategyConditionDto(),
+    val actions: List<String> = listOf("MINER_OFF"),
+    @SerialName("miner_preset") val minerPreset: String? = null,
+)
+
+/** Payload sent to the bridge when starting/replacing a strategy. */
+@Serializable
+data class StrategyConfigDto(
+    val name: String = "Miner Strategy",
+    @SerialName("interval_minutes") val intervalMinutes: Int = 5,
+    @SerialName("active_hours_start") val activeHoursStart: String = "06:00",
+    @SerialName("active_hours_end") val activeHoursEnd: String = "22:00",
+    val steps: List<StrategyStepDto> = emptyList(),
+)
+
+/** Strategy config + runtime status returned by the bridge. */
+@Serializable
+data class StrategyStatusDto(
+    val enabled: Boolean = false,
+    val name: String? = null,
+    @SerialName("interval_minutes") val intervalMinutes: Int = 5,
+    @SerialName("active_hours_start") val activeHoursStart: String? = null,
+    @SerialName("active_hours_end") val activeHoursEnd: String? = null,
+    val steps: List<StrategyStepDto> = emptyList(),
+    @SerialName("current_step") val currentStep: Int = 0,
+    @SerialName("last_transition_at") val lastTransitionAt: Double? = null,
+    @SerialName("last_soc") val lastSoc: Double? = null,
+    @SerialName("last_error") val lastError: String? = null,
+)
+
+/** Seasonal strategy templates returned by the bridge. */
+@Serializable
+data class StrategyTemplatesDto(
+    val templates: Map<String, StrategyConfigDto> = emptyMap(),
+)
+
 /** Miner status for switch idempotency and the power-preset decision. */
 @Serializable
 data class MinerStatusDto(
@@ -106,6 +162,62 @@ fun SolarNowDto.toSnapshot(): SolarSnapshot = SolarSnapshot(
     batteryKw = batteryKw,
     capacityKwh = battery?.capacityKwh,
 )
+
+fun StrategyConfigDto.toStrategyConfig(): StrategyConfig = StrategyConfig(
+    name = name,
+    intervalMinutes = intervalMinutes,
+    activeHoursStart = activeHoursStart,
+    activeHoursEnd = activeHoursEnd,
+    steps = steps.map { it.toStrategyStep() },
+)
+
+fun StrategyConfig.toStrategyConfigDto(): StrategyConfigDto = StrategyConfigDto(
+    name = name,
+    intervalMinutes = intervalMinutes,
+    activeHoursStart = activeHoursStart,
+    activeHoursEnd = activeHoursEnd,
+    steps = steps.map { it.toStrategyStepDto() },
+)
+
+fun StrategyStatusDto.toStrategyStatus(): StrategyStatus = StrategyStatus(
+    enabled = enabled,
+    name = name,
+    intervalMinutes = intervalMinutes,
+    activeHoursStart = activeHoursStart,
+    activeHoursEnd = activeHoursEnd,
+    steps = steps.map { it.toStrategyStep() },
+    currentStep = currentStep,
+    lastTransitionAt = lastTransitionAt?.let { (it * 1000).toLong() },
+    lastSoc = lastSoc,
+    lastError = lastError,
+)
+
+fun StrategyStepDto.toStrategyStep(): StrategyStep = StrategyStep(
+    name = name,
+    condition = StrategyCondition(
+        socThreshold = condition.socThreshold,
+        direction = directionFromName(condition.direction),
+        timeAfter = condition.timeAfter,
+    ),
+    actions = actions.mapNotNull { actionName -> TriggerAction.entries.firstOrNull { it.name == actionName } }.toSet(),
+    minerPreset = minerPreset?.let { slug -> MinerPreset.entries.firstOrNull { it.slug == slug } },
+)
+
+fun StrategyStep.toStrategyStepDto(): StrategyStepDto = StrategyStepDto(
+    name = name,
+    condition = StrategyConditionDto(
+        socThreshold = condition.socThreshold,
+        direction = condition.direction.name,
+        timeAfter = condition.timeAfter,
+    ),
+    actions = actions.map { it.name },
+    minerPreset = minerPreset?.slug,
+)
+
+private fun directionFromName(name: String): Direction = when (name) {
+    "AT_OR_ABOVE" -> Direction.AT_OR_ABOVE
+    else -> Direction.AT_OR_BELOW
+}
 
 /** Thin Retrofit interface for the Hermes bridge GET endpoints. */
 interface HermesApi {
@@ -148,6 +260,22 @@ interface HermesApi {
     @POST("api/device")
     @Headers("Accept: application/json")
     suspend fun registerDevice(@Body body: DeviceRegisterDto): TriggerAckDto
+
+    @GET("api/strategy/templates")
+    @Headers("Accept: application/json")
+    suspend fun strategyTemplates(): StrategyTemplatesDto
+
+    @POST("api/strategy")
+    @Headers("Accept: application/json")
+    suspend fun setStrategy(@Body body: StrategyConfigDto): StrategyStatusDto
+
+    @GET("api/strategy")
+    @Headers("Accept: application/json")
+    suspend fun getStrategy(): StrategyStatusDto
+
+    @DELETE("api/strategy")
+    @Headers("Accept: application/json")
+    suspend fun deleteStrategy(): TriggerAckDto
 }
 
 object ApiClientFactory {

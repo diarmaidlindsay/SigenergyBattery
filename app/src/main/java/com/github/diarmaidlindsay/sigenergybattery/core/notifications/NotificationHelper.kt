@@ -16,6 +16,7 @@ object NotificationHelper {
 
     const val CHANNEL_ALERTS = "hermes_alerts"
     const val NOTIF_ID_ALERT = 2
+    const val NOTIF_ID_STRATEGY = 3
 
     fun createChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -78,5 +79,33 @@ object NotificationHelper {
         } catch (_: SecurityException) {
             // POST_NOTIFICATIONS not granted; skip silently.
         }
+    }
+
+    /**
+     * Builds a strategy-transition notification from the FCM push payload.
+     * The bridge decided the strategy moved to a new step; here we render it.
+     */
+    fun strategyFromPush(
+        context: Context,
+        strategyName: String?,
+        stepName: String?,
+        soc: Double?,
+        fallbackBody: String?,
+    ): Notification {
+        val title = listOfNotNull(strategyName, stepName).joinToString(": ")
+            .ifBlank { "Miner strategy" }
+        val text = soc?.let { "Entered $stepName at SOC %.1f%%.".format(it) }
+            ?: fallbackBody
+            ?: "Strategy moved to a new step."
+        return NotificationCompat.Builder(context, CHANNEL_ALERTS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(contentIntent(context))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .build()
     }
 }

@@ -48,3 +48,50 @@ data class SolarSnapshot(
     val batteryKw: Double? = null,
     val capacityKwh: Double? = null,
 )
+
+/** Built-in seasonal strategy templates served by the bridge. */
+enum class Season(val key: String, val displayName: String) {
+    SUMMER("summer", "Summer (Jun-Aug)"),
+    SPRING("spring", "Spring (Mar-May)"),
+    AUTUMN("autumn", "Autumn (Sep-Nov)"),
+}
+
+/** A step's entry condition: SOC threshold + direction, optionally gated by
+ * a minimum time of day (HH:MM, local bridge time). */
+data class StrategyCondition(
+    val socThreshold: Double,
+    val direction: Direction,
+    val timeAfter: String? = null,
+)
+
+/** One state in a strategy. The bridge enters it when its [condition] is met
+ * and runs [actions] (and [minerPreset] if SET_POWER_PRESET is selected). */
+data class StrategyStep(
+    val name: String,
+    val condition: StrategyCondition,
+    val actions: Set<TriggerAction> = setOf(TriggerAction.NOTIFY),
+    val minerPreset: MinerPreset? = null,
+)
+
+/** User-facing configuration for a strategy. */
+data class StrategyConfig(
+    val name: String,
+    val intervalMinutes: Int,
+    val activeHoursStart: String,
+    val activeHoursEnd: String,
+    val steps: List<StrategyStep>,
+)
+
+/** Strategy config + runtime state returned by the bridge. */
+data class StrategyStatus(
+    val enabled: Boolean,
+    val name: String?,
+    val intervalMinutes: Int,
+    val activeHoursStart: String?,
+    val activeHoursEnd: String?,
+    val steps: List<StrategyStep>,
+    val currentStep: Int,
+    val lastTransitionAt: Long?,
+    val lastSoc: Double?,
+    val lastError: String?,
+)

@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -59,9 +60,12 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.Direction
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.MinerPreset
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.Season
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.StrategyConfig
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.TriggerAction
 import com.github.diarmaidlindsay.sigenergybattery.domain.SocEtaCalculator
 import com.github.diarmaidlindsay.sigenergybattery.ui.components.SocHistoryChart
+import com.github.diarmaidlindsay.sigenergybattery.ui.components.StrategySection
 import com.github.diarmaidlindsay.sigenergybattery.ui.theme.ChargeGreen
 import com.github.diarmaidlindsay.sigenergybattery.ui.theme.TextSecondary
 import com.github.diarmaidlindsay.sigenergybattery.ui.theme.WarnYellow
@@ -109,10 +113,18 @@ fun MonitorScreen(
                 onCancelTriggerOnDisconnectChange = viewModel::onCancelTriggerOnDisconnectChange,
                 onCheckNow = viewModel::checkNow,
                 onLoadHistory = viewModel::loadHistory,
-                onStart = viewModel::beginMonitoring,
+                onStartMonitoringClick = viewModel::onStartMonitoringClick,
+                onConfirmStartTriggerOverridesStrategy = viewModel::confirmStartTriggerOverridesStrategy,
+                onDismissStartTriggerOverridesStrategy = viewModel::dismissStartTriggerOverridesStrategy,
                 onStop = viewModel::cancelMonitoring,
                 onDisconnect = viewModel::disconnect,
                 onDismissAlert = viewModel::clearAlert,
+                onSelectStrategyTemplate = viewModel::onSelectStrategyTemplate,
+                onUpdateDraftStrategy = viewModel::updateDraftStrategy,
+                onStartStrategy = viewModel::onStartStrategyClick,
+                onConfirmStartStrategyOverridesTrigger = viewModel::confirmStartStrategyOverridesTrigger,
+                onDismissStartStrategyOverridesTrigger = viewModel::dismissStartStrategyOverridesTrigger,
+                onStopStrategy = viewModel::stopStrategy,
             )
         } else {
             ConnectPanel(
@@ -237,10 +249,18 @@ private fun MonitorPanel(
     onCancelTriggerOnDisconnectChange: (Boolean) -> Unit,
     onCheckNow: () -> Unit,
     onLoadHistory: () -> Unit,
-    onStart: () -> Unit,
+    onStartMonitoringClick: () -> Unit,
+    onConfirmStartTriggerOverridesStrategy: () -> Unit,
+    onDismissStartTriggerOverridesStrategy: () -> Unit,
     onStop: () -> Unit,
     onDisconnect: () -> Unit,
     onDismissAlert: () -> Unit,
+    onSelectStrategyTemplate: (Season, StrategyConfig) -> Unit,
+    onUpdateDraftStrategy: (StrategyConfig) -> Unit,
+    onStartStrategy: () -> Unit,
+    onConfirmStartStrategyOverridesTrigger: () -> Unit,
+    onDismissStartStrategyOverridesTrigger: () -> Unit,
+    onStopStrategy: () -> Unit,
 ) {
     var showSettings by remember { mutableStateOf(false) }
 
@@ -383,7 +403,7 @@ private fun MonitorPanel(
                             color = ChargeGreen,
                         )
                     }
-                    Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
+                    Button(onClick = onStartMonitoringClick, modifier = Modifier.fillMaxWidth()) {
                         Text("Monitor again")
                     }
                     TextButton(onClick = onDismissAlert, modifier = Modifier.fillMaxWidth()) {
@@ -404,7 +424,7 @@ private fun MonitorPanel(
                     Button(
                         onClick = {
                             if (notificationsGranted) {
-                                onStart()
+                                onStartMonitoringClick()
                             } else {
                                 onRequestNotifications()
                             }
@@ -416,6 +436,50 @@ private fun MonitorPanel(
                 }
             }
         }
+    }
+
+    StrategySection(
+        state = state,
+        onSelectTemplate = onSelectStrategyTemplate,
+        onUpdateDraft = onUpdateDraftStrategy,
+        onStart = onStartStrategy,
+        onStop = onStopStrategy,
+    )
+
+    if (state.confirmStartTriggerOverridesStrategy) {
+        AlertDialog(
+            onDismissRequest = onDismissStartTriggerOverridesStrategy,
+            title = { Text("Cancel the running strategy?") },
+            text = {
+                Text(
+                    "Starting one-shot alert monitoring will stop the running strategy on the bridge. Continue?",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = onConfirmStartTriggerOverridesStrategy) { Text("Continue") }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissStartTriggerOverridesStrategy) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (state.confirmStartStrategyOverridesTrigger) {
+        AlertDialog(
+            onDismissRequest = onDismissStartStrategyOverridesTrigger,
+            title = { Text("Cancel one-shot monitoring?") },
+            text = {
+                Text(
+                    "Starting a strategy will stop the current one-shot alert monitoring on the bridge. Continue?",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = onConfirmStartStrategyOverridesTrigger) { Text("Continue") }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissStartStrategyOverridesTrigger) { Text("Cancel") }
+            },
+        )
     }
 }
 

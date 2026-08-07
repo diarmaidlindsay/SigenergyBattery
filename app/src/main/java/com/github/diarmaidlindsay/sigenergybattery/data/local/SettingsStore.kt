@@ -7,13 +7,20 @@ import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.github.diarmaidlindsay.sigenergybattery.data.api.ApiClientFactory
+import com.github.diarmaidlindsay.sigenergybattery.data.api.StrategyConfigDto
+import com.github.diarmaidlindsay.sigenergybattery.data.api.toStrategyConfig
+import com.github.diarmaidlindsay.sigenergybattery.data.api.toStrategyConfigDto
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.BridgeConfig
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.Direction
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.MinerPreset
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.MonitorConfig
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.StrategyConfig
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.TriggerAction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+
+private val strategyJson = ApiClientFactory.json
 
 /**
  * Abstraction over app settings persistence so ViewModels can be tested with
@@ -24,10 +31,12 @@ interface SettingsStore {
     val monitorConfig: Flow<MonitorConfig>
     val hasConnectedBefore: Flow<Boolean>
     val cancelTriggerOnDisconnect: Flow<Boolean>
+    val strategyConfig: Flow<StrategyConfig?>
     suspend fun saveBridgeConfig(config: BridgeConfig)
     suspend fun saveMonitorConfig(config: MonitorConfig)
     suspend fun setHasConnectedBefore(value: Boolean)
     suspend fun setCancelTriggerOnDisconnect(value: Boolean)
+    suspend fun saveStrategyConfig(config: StrategyConfig?)
 
     companion object {
         val DEFAULT_HOST = "10.0.0.30"
@@ -59,6 +68,7 @@ class DataStoreSettingsStore(context: Context) : SettingsStore {
         val MINER_PRESET = stringPreferencesKey("miner_preset")
         val HAS_CONNECTED_BEFORE = booleanPreferencesKey("has_connected_before")
         val CANCEL_TRIGGER_ON_DISCONNECT = booleanPreferencesKey("cancel_trigger_on_disconnect")
+        val STRATEGY_CONFIG = stringPreferencesKey("strategy_config")
     }
 
     override val bridgeConfig: Flow<BridgeConfig> = dataStore.data.map { prefs ->
@@ -95,6 +105,14 @@ class DataStoreSettingsStore(context: Context) : SettingsStore {
         prefs[Keys.CANCEL_TRIGGER_ON_DISCONNECT] ?: DEFAULT_CANCEL_TRIGGER_ON_DISCONNECT
     }
 
+    override val strategyConfig: Flow<StrategyConfig?> = dataStore.data.map { prefs ->
+        prefs[Keys.STRATEGY_CONFIG]?.let { raw ->
+            runCatching {
+                strategyJson.decodeFromString<StrategyConfigDto>(raw).toStrategyConfig()
+            }.getOrNull()
+        }
+    }
+
     override suspend fun saveBridgeConfig(config: BridgeConfig) {
         dataStore.edit {
             it[Keys.HOST] = config.host.trim()
@@ -122,6 +140,16 @@ class DataStoreSettingsStore(context: Context) : SettingsStore {
 
     override suspend fun setCancelTriggerOnDisconnect(value: Boolean) {
         dataStore.edit { it[Keys.CANCEL_TRIGGER_ON_DISCONNECT] = value }
+    }
+
+    override suspend fun saveStrategyConfig(config: StrategyConfig?) {
+        dataStore.edit { prefs ->
+            if (config == null) {
+                prefs.remove(Keys.STRATEGY_CONFIG)
+            } else {
+                prefs[Keys.STRATEGY_CONFIG] = strategyJson.encodeToString(StrategyConfigDto.serializer(), config.toStrategyConfigDto())
+            }
+        }
     }
 
     companion object {
