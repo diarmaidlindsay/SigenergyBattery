@@ -541,6 +541,7 @@ private fun HistoryCard(state: MonitorUiState, onRefresh: () -> Unit) {
                         startEpochSeconds = state.historyStart,
                         intervalSeconds = intervalSec,
                         socs = state.historySocs,
+                        events = state.events,
                     )
                     val values = state.historySocs.filterNotNull()
                     if (values.isNotEmpty()) {

@@ -579,4 +579,115 @@ class MonitorViewModelTest {
         assertTrue(vm.uiState.value.cancelTriggerOnDisconnect)
         assertEquals(true, store.savedCancelOnDisconnect)
     }
+
+    // --- Events (SOC chart dots) ---
+
+    @Test
+    fun loadEvents_populatesEvents() = runTest {
+        val api = FakeHermesApi(
+            events = com.github.diarmaidlindsay.sigenergybattery.data.api.EventsDto(
+                events = listOf(
+                    com.github.diarmaidlindsay.sigenergybattery.data.api.EventDto(
+                        type = "trigger",
+                        t = 2000.0,
+                        soc = 20.0,
+                        thresholdSoc = 20.0,
+                        direction = "AT_OR_BELOW",
+                    ),
+                    com.github.diarmaidlindsay.sigenergybattery.data.api.EventDto(
+                        type = "strategy",
+                        t = 3000.0,
+                        soc = 85.0,
+                        reason = "condition",
+                        stepName = "Ramp Up",
+                    ),
+                ),
+            ),
+        )
+        val vm = viewModel(api)
+        vm.loadEvents()
+        advanceUntilIdle()
+
+        val state = vm.uiState.value
+        assertFalse(state.eventsLoading)
+        assertNull(state.eventsError)
+        assertEquals(2, state.events.size)
+        assertEquals(com.github.diarmaidlindsay.sigenergybattery.domain.model.EventType.TRIGGER, state.events[0].type)
+        assertEquals(2000L, state.events[0].epochSeconds)
+        assertEquals(com.github.diarmaidlindsay.sigenergybattery.domain.model.EventType.STRATEGY, state.events[1].type)
+        assertEquals("Ramp Up", state.events[1].stepName)
+    }
+
+    @Test
+    fun loadEvents_emptyResponse_leavesEmptyEvents() = runTest {
+        val vm = viewModel(FakeHermesApi(events = com.github.diarmaidlindsay.sigenergybattery.data.api.EventsDto()))
+        vm.loadEvents()
+        advanceUntilIdle()
+
+        val state = vm.uiState.value
+        assertFalse(state.eventsLoading)
+        assertNull(state.eventsError)
+        assertTrue(state.events.isEmpty())
+    }
+
+    @Test
+    fun loadEvents_errorSetsErrorAndKeepsEventsEmpty() = runTest {
+        val vm = viewModel(FakeHermesApi(eventsError = IOException("timeout")))
+        vm.loadEvents()
+        advanceUntilIdle()
+
+        val state = vm.uiState.value
+        assertFalse(state.eventsLoading)
+        assertEquals("Cannot reach bridge for events", state.eventsError)
+        assertTrue(state.events.isEmpty())
+    }
+
+    @Test
+    fun connect_loadsEventsAlongsideHistory() = runTest {
+        val api = FakeHermesApi(
+            result = SolarNowDto(batterySocPct = 60.0),
+            events = com.github.diarmaidlindsay.sigenergybattery.data.api.EventsDto(
+                events = listOf(
+                    com.github.diarmaidlindsay.sigenergybattery.data.api.EventDto(type = "trigger", t = 1.0, soc = 20.0),
+                ),
+            ),
+        )
+        // Fresh store so auto-connect (hasConnectedBefore) doesn't add a second
+        // connect round-trip to the api call counters.
+        val freshStore = FakeSettingsStore(initialBridge = config)
+        val vm = MonitorViewModel(
+            store = freshStore,
+            apiFactory = { api },
+            fcmTokenProvider = { null },
+        )
+        vm.onHostChange("100.105.141.68")
+        vm.onPortChange("8500")
+        vm.onApiKeyChange("key123")
+        vm.connect()
+        advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.connected)
+        assertEquals(1, vm.uiState.value.events.size)
+        assertTrue(api.eventsCalls >= 1)
+    }
+
+    @Test
+    fun refreshAll_loadsEventsWhenConnected() = runTest {
+        val api = FakeHermesApi(
+            result = SolarNowDto(batterySocPct = 60.0, batteryKw = 5.0),
+        )
+        val vm = viewModel(api)
+        vm.onHostChange("10.0.0.30")
+        vm.onPortChange("8500")
+        vm.onApiKeyChange("key123")
+        vm.connect()
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.connected)
+
+        val eventsCallsBefore = api.eventsCalls
+        vm.refreshAll()
+        advanceUntilIdle()
+
+        assertTrue(api.eventsCalls > eventsCallsBefore)
+    }
 }

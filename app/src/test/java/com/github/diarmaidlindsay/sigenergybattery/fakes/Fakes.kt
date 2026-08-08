@@ -5,6 +5,7 @@ import com.github.diarmaidlindsay.sigenergybattery.data.api.MinerActionResponse
 import com.github.diarmaidlindsay.sigenergybattery.data.api.MinerStatusDto
 import com.github.diarmaidlindsay.sigenergybattery.data.api.SolarNowDto
 import com.github.diarmaidlindsay.sigenergybattery.data.api.DeviceRegisterDto
+import com.github.diarmaidlindsay.sigenergybattery.data.api.EventsDto
 import com.github.diarmaidlindsay.sigenergybattery.data.api.StrategyConfigDto
 import com.github.diarmaidlindsay.sigenergybattery.data.api.StrategyStatusDto
 import com.github.diarmaidlindsay.sigenergybattery.data.api.StrategyTemplatesDto
@@ -86,6 +87,7 @@ class HangingHermesApi : HermesApi {
         kotlinx.coroutines.awaitCancellation()
     override suspend fun getStrategy(): StrategyStatusDto = kotlinx.coroutines.awaitCancellation()
     override suspend fun deleteStrategy(): TriggerAckDto = kotlinx.coroutines.awaitCancellation()
+    override suspend fun events(): EventsDto = kotlinx.coroutines.awaitCancellation()
 }
 
 class FakeHermesApi(
@@ -98,6 +100,8 @@ class FakeHermesApi(
     private val strategyStatus: StrategyStatusDto? = null,
     private val strategyTemplates: StrategyTemplatesDto? = null,
     private val strategyError: Throwable? = null,
+    private val events: EventsDto? = null,
+    private val eventsError: Throwable? = null,
 ) : HermesApi {
     var calls = 0
     var historyCalls = 0
@@ -113,6 +117,7 @@ class FakeHermesApi(
     var setStrategyCalls = 0
     var getStrategyCalls = 0
     var deleteStrategyCalls = 0
+    var eventsCalls = 0
     var lastTrigger: TriggerConfigDto? = null
     var lastDeviceToken: String? = null
     var lastPreset: String? = null
@@ -204,5 +209,11 @@ class FakeHermesApi(
         deleteStrategyCalls++
         strategyError?.let { throw it }
         return TriggerAckDto("ok")
+    }
+
+    override suspend fun events(): EventsDto {
+        eventsCalls++
+        eventsError?.let { throw it }
+        return events ?: EventsDto()
     }
 }

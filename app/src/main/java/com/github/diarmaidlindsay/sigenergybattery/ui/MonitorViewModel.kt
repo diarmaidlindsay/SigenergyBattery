@@ -10,6 +10,7 @@ import com.github.diarmaidlindsay.sigenergybattery.data.api.StrategyConfigDto
 import com.github.diarmaidlindsay.sigenergybattery.data.api.StrategyStatusDto
 import com.github.diarmaidlindsay.sigenergybattery.data.api.TriggerConfigDto
 import com.github.diarmaidlindsay.sigenergybattery.data.api.toSnapshot
+import com.github.diarmaidlindsay.sigenergybattery.data.api.toChartEvent
 import com.github.diarmaidlindsay.sigenergybattery.data.api.toStrategyConfig
 import com.github.diarmaidlindsay.sigenergybattery.data.api.toStrategyConfigDto
 import com.github.diarmaidlindsay.sigenergybattery.data.api.toStrategyStatus
@@ -18,6 +19,7 @@ import com.github.diarmaidlindsay.sigenergybattery.data.local.SettingsStore
 import com.github.diarmaidlindsay.sigenergybattery.domain.BatteryMonitor
 import com.github.diarmaidlindsay.sigenergybattery.domain.SocEtaCalculator
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.BridgeConfig
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.ChartEvent
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.Direction
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.MinerPreset
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.MonitorConfig
@@ -69,6 +71,10 @@ data class MonitorUiState(
     val historyIntervalMinutes: Int = 5,
     val historyLoading: Boolean = false,
     val historyError: String? = null,
+    // Trigger + strategy events overlaid on the SOC history chart
+    val events: List<ChartEvent> = emptyList(),
+    val eventsLoading: Boolean = false,
+    val eventsError: String? = null,
     // Strategy (automated miner scheduling)
     val strategyEnabled: Boolean = false,
     val strategyName: String? = null,
@@ -303,6 +309,7 @@ open class MonitorViewModel(
                     )
                 }
                 loadHistory()
+                loadEvents()
                 syncTriggerStatus()
                 syncStrategyStatus()
                 loadStrategyTemplates()
@@ -379,11 +386,12 @@ open class MonitorViewModel(
         }
     }
 
-    /** Refreshes SOC, history, and the bridge trigger status. */
+    /** Refreshes SOC, history, events, and the bridge trigger status. */
     fun refreshAll() {
         if (!_uiState.value.connected) return
         checkNow()
         loadHistory()
+        loadEvents()
         syncTriggerStatus()
         syncStrategyStatus()
     }
@@ -449,6 +457,41 @@ open class MonitorViewModel(
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(historyLoading = false, historyError = e.message ?: "History load failed")
+                }
+            }
+        }
+    }
+
+    /**
+     * Loads the trigger + strategy events recorded on the bridge so the SOC
+     * chart can overlay dots. Best-effort: a failure sets [eventsError] but
+     * never blocks history or the rest of the UI.
+     */
+    fun loadEvents() {
+        if (_uiState.value.eventsLoading) return
+        _uiState.update { it.copy(eventsLoading = true, eventsError = null) }
+        val config = currentConfig()
+        viewModelScope.launch {
+            try {
+                val dto = apiFactory(config).events()
+                _uiState.update {
+                    it.copy(
+                        eventsLoading = false,
+                        eventsError = null,
+                        events = dto.events.map { event -> event.toChartEvent() },
+                    )
+                }
+            } catch (e: HttpException) {
+                _uiState.update {
+                    it.copy(eventsLoading = false, eventsError = "Events unavailable (HTTP ${e.code()})")
+                }
+            } catch (e: IOException) {
+                _uiState.update {
+                    it.copy(eventsLoading = false, eventsError = "Cannot reach bridge for events")
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(eventsLoading = false, eventsError = e.message ?: "Events load failed")
                 }
             }
         }

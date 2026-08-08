@@ -95,3 +95,28 @@ data class StrategyStatus(
     val lastSoc: Double?,
     val lastError: String?,
 )
+
+/** What kind of automation produced an event recorded on the bridge. */
+enum class EventType {
+    TRIGGER,
+    STRATEGY,
+}
+
+/** One recorded event for the SOC chart: a one-shot trigger firing or a
+ * strategy step transition. `epochSeconds` locates the dot on the time axis;
+ * type-specific fields feed the long-press overlay. */
+data class ChartEvent(
+    val type: EventType,
+    val epochSeconds: Long,
+    val soc: Double?,
+    val error: String?,
+    val thresholdSoc: Double?,
+    val direction: Direction?,
+    val actions: Set<TriggerAction> = emptySet(),
+    val minerPreset: MinerPreset? = null,
+    val reason: String? = null,
+    val fromStep: Int? = null,
+    val toStep: Int? = null,
+    val stepName: String? = null,
+    val strategyName: String? = null,
+)

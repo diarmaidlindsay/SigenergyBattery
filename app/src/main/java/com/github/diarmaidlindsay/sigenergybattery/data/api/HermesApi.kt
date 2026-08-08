@@ -1,7 +1,9 @@
 package com.github.diarmaidlindsay.sigenergybattery.data.api
 
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.BridgeConfig
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.ChartEvent
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.Direction
+import com.github.diarmaidlindsay.sigenergybattery.domain.model.EventType
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.MinerPreset
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.SolarSnapshot
 import com.github.diarmaidlindsay.sigenergybattery.domain.model.StrategyCondition
@@ -146,6 +148,32 @@ data class StrategyTemplatesDto(
     val templates: Map<String, StrategyConfigDto> = emptyMap(),
 )
 
+/** One recorded event (trigger fire or strategy transition) from /api/events.
+ * Trigger events carry threshold/direction; strategy events carry
+ * reason/from_step/to_step/step_name/strategy_name. */
+@Serializable
+data class EventDto(
+    @SerialName("type") val type: String = "",
+    @SerialName("t") val t: Double = 0.0,
+    @SerialName("soc") val soc: Double? = null,
+    @SerialName("error") val error: String? = null,
+    @SerialName("threshold_soc") val thresholdSoc: Double? = null,
+    @SerialName("direction") val direction: String? = null,
+    @SerialName("actions") val actions: List<String> = emptyList(),
+    @SerialName("miner_preset") val minerPreset: String? = null,
+    @SerialName("reason") val reason: String? = null,
+    @SerialName("from_step") val fromStep: Int? = null,
+    @SerialName("to_step") val toStep: Int? = null,
+    @SerialName("step_name") val stepName: String? = null,
+    @SerialName("strategy_name") val strategyName: String? = null,
+)
+
+/** Response wrapper for /api/events: recorded events, newest first. */
+@Serializable
+data class EventsDto(
+    val events: List<EventDto> = emptyList(),
+)
+
 /** Miner status for switch idempotency and the power-preset decision. */
 @Serializable
 data class MinerStatusDto(
@@ -201,6 +229,22 @@ fun StrategyStepDto.toStrategyStep(): StrategyStep = StrategyStep(
     ),
     actions = actions.mapNotNull { actionName -> TriggerAction.entries.firstOrNull { it.name == actionName } }.toSet(),
     minerPreset = minerPreset?.let { slug -> MinerPreset.entries.firstOrNull { it.slug == slug } },
+)
+
+fun EventDto.toChartEvent(): ChartEvent = ChartEvent(
+    type = if (type == "strategy") EventType.STRATEGY else EventType.TRIGGER,
+    epochSeconds = t.toLong(),
+    soc = soc,
+    error = error,
+    thresholdSoc = thresholdSoc,
+    direction = direction?.let { directionFromName(it) },
+    actions = actions.mapNotNull { actionName -> TriggerAction.entries.firstOrNull { it.name == actionName } }.toSet(),
+    minerPreset = minerPreset?.let { slug -> MinerPreset.entries.firstOrNull { it.slug == slug } },
+    reason = reason,
+    fromStep = fromStep,
+    toStep = toStep,
+    stepName = stepName,
+    strategyName = strategyName,
 )
 
 fun StrategyStep.toStrategyStepDto(): StrategyStepDto = StrategyStepDto(
@@ -276,6 +320,10 @@ interface HermesApi {
     @DELETE("api/strategy")
     @Headers("Accept: application/json")
     suspend fun deleteStrategy(): TriggerAckDto
+
+    @GET("api/events")
+    @Headers("Accept: application/json")
+    suspend fun events(): EventsDto
 }
 
 object ApiClientFactory {
