@@ -28,7 +28,7 @@ class StrategyDtoParsingTest {
                 },
                 {
                   "name": "Ramp Up",
-                  "condition": {"soc_threshold": 80, "direction": "AT_OR_ABOVE"},
+                  "condition": {"soc_threshold": 80, "direction": "AT_OR_ABOVE", "exit_soc_threshold": 70},
                   "actions": ["MINER_ON", "SET_POWER_PRESET"],
                   "miner_preset": "low"
                 }
@@ -54,6 +54,7 @@ class StrategyDtoParsingTest {
         assertEquals("Idle", mapped.steps[0].name)
         assertTrue("MINER_OFF" in mapped.steps[0].actions.map { it.name })
         assertEquals("Ramp Up", mapped.steps[1].name)
+        assertEquals(70.0, mapped.steps[1].condition.exitSocThreshold!!, 0.001)
         assertEquals(1785939827000L, mapped.lastTransitionAt)
     }
 
@@ -76,7 +77,12 @@ class StrategyDtoParsingTest {
             steps = listOf(
                 StrategyStepDto(
                     name = "Winding Down",
-                    condition = StrategyConditionDto(socThreshold = 80.0, direction = "AT_OR_BELOW", timeAfter = "14:00"),
+                    condition = StrategyConditionDto(
+                        socThreshold = 80.0,
+                        direction = "AT_OR_BELOW",
+                        timeAfter = "14:00",
+                        exitSocThreshold = 70.0,
+                    ),
                     actions = listOf("SET_POWER_PRESET"),
                     minerPreset = "low",
                 ),
@@ -90,6 +96,14 @@ class StrategyDtoParsingTest {
         val mapped = decoded.toStrategyConfig()
         assertEquals("08:00", mapped.activeHoursStart)
         assertEquals("14:00", mapped.steps.single().condition.timeAfter)
+        assertEquals(70.0, mapped.steps.single().condition.exitSocThreshold!!, 0.001)
+
+        val encodedJson = encoded
+        assertTrue(encodedJson.contains("exit_soc_threshold"))
+
+        val legacy = StrategyConditionDto(socThreshold = 80.0)
+        val legacyJson = json.encodeToString(StrategyConditionDto.serializer(), legacy)
+        assertFalse(legacyJson.contains("exit_soc_threshold"))
     }
 
     @Test

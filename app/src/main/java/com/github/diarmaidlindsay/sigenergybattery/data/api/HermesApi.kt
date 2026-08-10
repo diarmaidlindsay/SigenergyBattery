@@ -106,6 +106,7 @@ data class StrategyConditionDto(
     @SerialName("soc_threshold") val socThreshold: Double = 70.0,
     val direction: String = "AT_OR_BELOW",
     @SerialName("time_after") val timeAfter: String? = null,
+    @SerialName("exit_soc_threshold") val exitSocThreshold: Double? = null,
 )
 
 /** One state in a strategy as sent/received by the bridge. */
@@ -226,6 +227,7 @@ fun StrategyStepDto.toStrategyStep(): StrategyStep = StrategyStep(
         socThreshold = condition.socThreshold,
         direction = directionFromName(condition.direction),
         timeAfter = condition.timeAfter,
+        exitSocThreshold = condition.exitSocThreshold,
     ),
     actions = actions.mapNotNull { actionName -> TriggerAction.entries.firstOrNull { it.name == actionName } }.toSet(),
     minerPreset = minerPreset?.let { slug -> MinerPreset.entries.firstOrNull { it.slug == slug } },
@@ -253,6 +255,7 @@ fun StrategyStep.toStrategyStepDto(): StrategyStepDto = StrategyStepDto(
         socThreshold = condition.socThreshold,
         direction = condition.direction.name,
         timeAfter = condition.timeAfter,
+        exitSocThreshold = condition.exitSocThreshold,
     ),
     actions = actions.map { it.name },
     minerPreset = minerPreset?.slug,

@@ -62,6 +62,7 @@ data class StrategyCondition(
     val socThreshold: Double,
     val direction: Direction,
     val timeAfter: String? = null,
+    val exitSocThreshold: Double? = null,
 )
 
 /** One state in a strategy. The bridge enters it when its [condition] is met

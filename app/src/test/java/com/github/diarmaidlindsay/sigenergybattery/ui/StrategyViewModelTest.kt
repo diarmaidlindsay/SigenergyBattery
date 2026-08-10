@@ -46,13 +46,13 @@ fun summerConfigDto(): StrategyConfigDto = StrategyConfigDto(
         ),
         StrategyStepDto(
             name = "Ramp Up",
-            condition = StrategyConditionDto(socThreshold = 80.0, direction = "AT_OR_ABOVE"),
+            condition = StrategyConditionDto(socThreshold = 80.0, direction = "AT_OR_ABOVE", exitSocThreshold = 70.0),
             actions = listOf("MINER_ON", "SET_POWER_PRESET"),
             minerPreset = "low",
         ),
         StrategyStepDto(
             name = "Full Power",
-            condition = StrategyConditionDto(socThreshold = 90.0, direction = "AT_OR_ABOVE"),
+            condition = StrategyConditionDto(socThreshold = 90.0, direction = "AT_OR_ABOVE", exitSocThreshold = 80.0),
             actions = listOf("SET_POWER_PRESET"),
             minerPreset = "max",
         ),
@@ -62,6 +62,7 @@ fun summerConfigDto(): StrategyConfigDto = StrategyConfigDto(
                 socThreshold = 80.0,
                 direction = "AT_OR_BELOW",
                 timeAfter = "16:00",
+                exitSocThreshold = 70.0,
             ),
             actions = listOf("SET_POWER_PRESET"),
             minerPreset = "low",
@@ -351,6 +352,7 @@ class StrategyViewModelTest {
         )
         val dto = step.toStrategyStepDto()
         assertEquals("90.0".toDouble(), dto.condition.socThreshold, 0.001)
+        assertNull(dto.condition.exitSocThreshold)
         assertEquals("AT_OR_ABOVE", dto.condition.direction)
         assertEquals("max", dto.minerPreset)
 
@@ -358,5 +360,10 @@ class StrategyViewModelTest {
         assertEquals(TriggerAction.SET_POWER_PRESET, back.actions.single())
         assertEquals(MinerPreset.MAX, back.minerPreset)
         assertEquals(Direction.AT_OR_ABOVE, back.condition.direction)
+
+        val hysteresis = step.copy(condition = step.condition.copy(exitSocThreshold = 80.0))
+        val hysteresisDto = hysteresis.toStrategyStepDto()
+        assertEquals(80.0, hysteresisDto.condition.exitSocThreshold!!, 0.001)
+        assertEquals(80.0, hysteresisDto.toStrategyStep().condition.exitSocThreshold!!, 0.001)
     }
 }
