@@ -75,6 +75,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.roundToLong
 
 /**
  * 24-hour battery SOC line chart (0-100%, 5-minute samples).
@@ -306,9 +307,16 @@ internal fun computePlottedEvents(
 ): List<PlottedEvent> =
     events.mapNotNull { event ->
         val soc = event.soc ?: return@mapNotNull null
-        val x = (event.epochSeconds - chartStartEpochSeconds).toDouble() / intervalSeconds.toDouble()
+        // Vico only supports x values with up to four decimal places; a raw
+        // (epoch - start) / interval can be a non-terminating fraction and crash
+        // the chart. Round to the sample-index axis at four decimals.
+        val x = ((event.epochSeconds - chartStartEpochSeconds).toDouble() / intervalSeconds.toDouble())
+            .roundTo4Decimals()
         if (x < 0.0 || x > (sampleCount - 1).toDouble()) null else PlottedEvent(event, x, soc)
     }.distinctBy { it.x }
+
+/** Rounds to four decimal places, Vico's maximum x-value precision. */
+private fun Double.roundTo4Decimals(): Double = (this * 10_000.0).roundToLong() / 10_000.0
 
 /** A [LineCartesianLayer] that never publishes marker targets. This keeps Vico's
  * marker snapping on the sparse event dots instead of every SOC sample. */

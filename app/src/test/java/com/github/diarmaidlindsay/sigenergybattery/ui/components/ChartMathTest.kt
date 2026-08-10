@@ -44,6 +44,33 @@ class ChartMathTest {
     }
 
     @Test
+    fun roundsXToFourDecimalPlaces() {
+        // (1001-0)/300 = 3.33666... must be rounded to 3.3367 so Vico's
+        // four-decimal precision check (which throws on too-precise x-values)
+        // never fires.
+        val plotted = computePlottedEvents(listOf(event(epoch = 1001)), 0L, 300L, sampleCount = 100)
+        assertEquals(3.3367, plotted[0].x, 0.0)
+        assertEquals(0.0, plotted[0].x * 10_000.0 % 1.0, 0.0)
+    }
+
+    @Test
+    fun adjacentOffGridEventsStayFourDecimalAligned() {
+        // Two events one second apart off the 5-minute grid. The x deltas must
+        // remain multiples of 0.0001 so the chart's gcd is never zero.
+        val events = listOf(
+            event(epoch = 1001),
+            event(epoch = 1002, soc = 60.0),
+            event(epoch = 1003, soc = 70.0),
+        )
+        val plotted = computePlottedEvents(events, 0L, 300L, sampleCount = 100)
+        assertEquals(3, plotted.size)
+        assertTrue(plotted.all { it.x * 10_000.0 % 1.0 == 0.0 })
+        assertEquals(3.3367, plotted[0].x, 0.0)
+        assertEquals(3.3400, plotted[1].x, 0.0)
+        assertEquals(3.3433, plotted[2].x, 0.0)
+    }
+
+    @Test
     fun dropsEventsWithoutSoc() {
         val events = listOf(
             event(epoch = 1300, soc = null),
